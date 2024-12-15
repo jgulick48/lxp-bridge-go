@@ -5,3 +5,4 @@ inverters:
     datalog: BA31101550
     serial: 3192670065
     heartbeats: false
+    read_timeout: 30

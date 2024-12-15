@@ -75,6 +75,9 @@ check-diff: reviewable
 # ====================================================================================
 # Golang
 
+install_tools:
+	go install golang.org/x/tools/cmd/stringer
+
 .PHONY: test
 test: generate lint ## Run tests
 	@$(INFO) go test unit-tests

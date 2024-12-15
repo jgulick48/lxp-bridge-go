@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"github.com/jgulick48/lxp-bridge-go/internal/server"
 	"io/ioutil"
 	"os"
 	"os/signal"
@@ -17,6 +18,7 @@ import (
 var configLocation = flag.String("configFile", "./config.yml", "Location for the configuration file.")
 
 func main() {
+	//LogListener()
 	startService()
 	exitStatus, err := panicwrap.BasicWrap(panicHandler)
 	if err != nil {
@@ -48,23 +50,32 @@ func startService() {
 	log.Print(path)
 	config := LoadClientConfig(*configLocation)
 	inverterClients := make([]*modbus.Client, len(config.Inverters))
+	done := make(chan bool)
+	OnTermination(func() {
+		done <- true
+	})
 	if len(config.Inverters) > 0 {
 		for i, inverter := range config.Inverters {
 			modClient := modbus.NewClient(inverter, logger)
 			inverterClients[i] = &modClient
-			err = modClient.ReadInputs1()
+			err = modClient.Connect(done)
+			done <- true
 			if err != nil {
 				log.Errorf("Error reading inputs from inverter %d: %s", i, err.Error())
 			}
 		}
 	}
-	done := make(chan bool)
-	OnTermination(func() {
-		done <- true
-	})
 	for <-done {
 		return
 	}
+}
+
+func LogListener() {
+	server := server.New(&server.Config{
+		Host: "0.0.0.0",
+		Port: "8000",
+	})
+	server.Run()
 }
 
 // TermFunc defines the function which is executed on termination.

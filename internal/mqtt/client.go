@@ -3,12 +3,10 @@ package mqtt
 import (
 	"encoding/json"
 	"fmt"
-	"log"
-	"strings"
-	"time"
-
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/jgulick48/lxp-bridge-go/internal/models"
+	"log"
+	"strings"
 )
 
 type Client interface {
@@ -18,7 +16,7 @@ type Client interface {
 }
 
 type client struct {
-	config     models.Config
+	config     models.MQTTConfig
 	done       chan bool
 	mqttClient mqtt.Client
 	messages   chan mqtt.Message
@@ -27,7 +25,7 @@ type client struct {
 	soc        int
 }
 
-func NewClient(config models.Config, debug bool) Client {
+func NewClient(config models.MQTTConfig, debug bool) Client {
 	if config.Host != "" {
 		client := client{
 			config:   config,
@@ -65,34 +63,7 @@ func (c *client) Connect() {
 	if token := c.mqttClient.Connect(); token.Wait() && token.Error() != nil {
 		panic(token.Error())
 	}
-	c.sub()
 	defer c.mqttClient.Disconnect(250)
-	c.keepAlive()
-}
-
-func (c *client) keepAlive() {
-	ticker := time.NewTicker(10 * time.Second)
-	ticker2 := time.NewTicker(1 * time.Minute)
-	for {
-		select {
-		case <-c.done:
-			return
-		case <-ticker.C:
-			for _, deviceID := range c.config.DeviceIDs {
-				token := c.mqttClient.Publish(fmt.Sprintf("lxp/cmd/%s/read/inputs/1", deviceID), 0, true, "")
-				token.Wait()
-				token = c.mqttClient.Publish(fmt.Sprintf("lxp/cmd/%s/read/inputs/2", deviceID), 0, true, "")
-				token.Wait()
-				token = c.mqttClient.Publish(fmt.Sprintf("lxp/cmd/%s/read/inputs/4", deviceID), 0, true, "")
-				token.Wait()
-			}
-		case <-ticker2.C:
-			for _, deviceID := range c.config.DeviceIDs {
-				token := c.mqttClient.Publish(fmt.Sprintf("lxp/cmd/%s/read/inputs/3", deviceID), 0, true, "")
-				token.Wait()
-			}
-		}
-	}
 }
 
 func (c *client) messagePubHandler(client mqtt.Client, msg mqtt.Message) {
@@ -106,17 +77,6 @@ var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
 func (c *client) connectLostHandler(client mqtt.Client, err error) {
 	log.Printf("Connect lost: %v", err)
 	c.done <- true
-}
-
-func (c *client) sub() {
-	topics := make(map[string]byte)
-	topicNames := make([]string, 0, len(c.config.DeviceIDs))
-	for _, device := range c.config.DeviceIDs {
-		topics[fmt.Sprintf("lxp/%s/inputs/#", device)] = 1
-	}
-	token := c.mqttClient.SubscribeMultiple(topics, nil)
-	token.Wait()
-	log.Printf("Subscribed to topics: %s", strings.Join(topicNames, ", "))
 }
 
 func (c *client) ProcessData(topic string, message []byte) error {
