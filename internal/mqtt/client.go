@@ -2,9 +2,11 @@ package mqtt
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/jgulick48/lxp-bridge-go/internal/models"
+	"github.com/sirupsen/logrus"
 	"log"
 	"strings"
 )
@@ -13,6 +15,7 @@ type Client interface {
 	Close()
 	IsEnabled() bool
 	Connect()
+	SendMessage(topic string, value interface{}, retained bool) error
 }
 
 type client struct {
@@ -52,11 +55,13 @@ func (c *client) Connect() {
 			c.ProcessData(message.Topic(), message.Payload())
 		}
 	}()
-	log.Printf("Connecting to %s", fmt.Sprintf("tcp://%s:%d", c.config.Host, c.config.Port))
+	logrus.Infof("Connecting to %s", fmt.Sprintf("tcp://%s:%d", c.config.Host, c.config.Port))
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", c.config.Host, c.config.Port))
 	opts.SetClientID("go_mqtt_client")
 	opts.SetDefaultPublishHandler(c.messagePubHandler)
+	opts.SetUsername(c.config.Username)
+	opts.SetPassword(c.config.Password)
 	opts.OnConnect = connectHandler
 	opts.OnConnectionLost = c.connectLostHandler
 	c.mqttClient = mqtt.NewClient(opts)
@@ -64,6 +69,26 @@ func (c *client) Connect() {
 		panic(token.Error())
 	}
 	defer c.mqttClient.Disconnect(250)
+	c.keepAlive()
+}
+
+func (c *client) keepAlive() {
+	for {
+		select {
+		case <-c.done:
+			close(c.messages)
+			return
+		}
+	}
+}
+
+func (c *client) SendMessage(topic string, value interface{}, retained bool) error {
+	if c.mqttClient != nil {
+		token := c.mqttClient.Publish(topic, 0, retained, value)
+		token.Wait()
+		return token.Error()
+	}
+	return errors.New("mqtt client not initialized")
 }
 
 func (c *client) messagePubHandler(client mqtt.Client, msg mqtt.Message) {
@@ -71,11 +96,11 @@ func (c *client) messagePubHandler(client mqtt.Client, msg mqtt.Message) {
 }
 
 var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
-	log.Println("Connected")
+	logrus.Infof("Connected")
 }
 
 func (c *client) connectLostHandler(client mqtt.Client, err error) {
-	log.Printf("Connect lost: %v", err)
+	logrus.Infof("Connect lost: %v", err)
 	c.done <- true
 }
 
@@ -89,7 +114,7 @@ func (c *client) ProcessData(topic string, message []byte) error {
 	parser := c.GetDataParser(segments, DefaultParser)
 	parser(segments, payload)
 	if c.debug {
-		log.Printf("Got message from topic: %s %s", topic, message)
+		logrus.Infof("Got message from topic: %s %s", topic, message)
 	}
 	return nil
 }
@@ -166,5 +191,4 @@ func (c *client) ParseInputs(segments []string, message models.MessageJson) {
 			}
 		}
 	}
-
 }

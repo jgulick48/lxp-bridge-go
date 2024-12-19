@@ -1,6 +1,6 @@
 ARG ARCH=
 
-FROM ${ARCH}golang:1.23.4 as builder
+FROM ${ARCH}golang:1.23.4 AS builder
 
 WORKDIR /app
 
@@ -11,7 +11,9 @@ RUN go mod download
 
 COPY ./ ./
 
-RUN go test ./...
+RUN go install golang.org/x/tools/cmd/stringer@latest
+
+RUN go generate ./...
 
 RUN GOOS=linux CGO_ENABLED=0 go build
 

@@ -5,4 +5,24 @@ inverters:
     datalog: BA31101550
     serial: 3192670065
     heartbeats: false
-    read_timeout: 30
+    read_timeout: 300s
+mqtt:
+  enabled: true
+  host: 10.0.13.40
+  port: 1883
+  username:
+  password:
+  namespace: lxp
+  publish_individual_input: false
+  homeassistant:
+    enabled: true
+    prefix: homeassistant
+statsd:
+  server: ""
+openEVSE:
+  enabled: true
+  topic: "lxp/sensor/BA31101550/read/power1"
+  SOCChargeStart: 96
+  SOCChargeMax: 98
+  chargeStopValue: 1700
+  chargeMaxValue: -400

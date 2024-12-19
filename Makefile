@@ -26,7 +26,7 @@ HELM_DIR    ?= deploy/charts/cluster-config-maps
 
 OUTPUT_DIR  ?= bin
 
-RUN_GOLANGCI_LINT := go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.59.1
+RUN_GOLANGCI_LINT := go run github.com/golangci/golangci-lint/cmd/golangci-lint@v1.62.2 --timeout 20m
 
 # check if there are any existing `git tag` values
 ifeq ($(shell git tag),)

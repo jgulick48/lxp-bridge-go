@@ -2,17 +2,16 @@ package main
 
 import (
 	"flag"
-	"github.com/jgulick48/lxp-bridge-go/internal/server"
+	"github.com/jgulick48/lxp-bridge-go/internal/coordinator"
+	"github.com/jgulick48/lxp-bridge-go/internal/models"
+	"github.com/mitchellh/panicwrap"
+	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v3"
 	"io/ioutil"
 	"os"
 	"os/signal"
 	"syscall"
-
-	"github.com/jgulick48/lxp-bridge-go/internal/modbus"
-	"github.com/jgulick48/lxp-bridge-go/internal/models"
-	"github.com/mitchellh/panicwrap"
-	log "github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v3"
 )
 
 var configLocation = flag.String("configFile", "./config.yml", "Location for the configuration file.")
@@ -43,39 +42,21 @@ func panicHandler(output string) {
 
 func startService() {
 	path, err := os.Getwd()
-	logger := log.New()
 	if err != nil {
 		log.Println(err)
 	}
+	logger := logrus.Logger{}
 	log.Print(path)
 	config := LoadClientConfig(*configLocation)
-	inverterClients := make([]*modbus.Client, len(config.Inverters))
 	done := make(chan bool)
 	OnTermination(func() {
 		done <- true
 	})
-	if len(config.Inverters) > 0 {
-		for i, inverter := range config.Inverters {
-			modClient := modbus.NewClient(inverter, logger)
-			inverterClients[i] = &modClient
-			err = modClient.Connect(done)
-			done <- true
-			if err != nil {
-				log.Errorf("Error reading inputs from inverter %d: %s", i, err.Error())
-			}
-		}
-	}
+	server := coordinator.NewClient(config, &logger)
 	for <-done {
+		server.Done()
 		return
 	}
-}
-
-func LogListener() {
-	server := server.New(&server.Config{
-		Host: "0.0.0.0",
-		Port: "8000",
-	})
-	server.Run()
 }
 
 // TermFunc defines the function which is executed on termination.
