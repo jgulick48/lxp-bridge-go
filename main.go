@@ -47,6 +47,8 @@ func startService() {
 	}
 	logger := logrus.Logger{}
 	log.Print(path)
+	flag.Parse()
+	logrus.Infof("Got config location of %s", *configLocation)
 	config := LoadClientConfig(*configLocation)
 	done := make(chan bool)
 	OnTermination(func() {
@@ -84,8 +86,7 @@ func LoadClientConfig(filename string) models.Config {
 	}
 	configFile, err := ioutil.ReadFile(filename)
 	if err != nil {
-		log.Printf("No config file found. Making new IDs")
-		panic(err)
+		logrus.Fatalf("No config file found %s.", filename)
 	}
 	var config models.Config
 	err = yaml.Unmarshal(configFile, &config)

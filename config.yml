@@ -10,6 +10,7 @@ mqtt:
   enabled: true
   host: 10.0.13.40
   port: 1883
+  clientName: LXP_Bridge_mqtt_client
   username:
   password:
   namespace: lxp

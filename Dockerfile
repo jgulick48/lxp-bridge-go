@@ -4,6 +4,8 @@ FROM ${ARCH}golang:1.23.4 AS builder
 
 WORKDIR /app
 
+RUN go install golang.org/x/tools/cmd/stringer@latest
+
 COPY go.mod .
 COPY go.sum .
 
@@ -11,7 +13,6 @@ RUN go mod download
 
 COPY ./ ./
 
-RUN go install golang.org/x/tools/cmd/stringer@latest
 
 RUN go generate ./...
 
@@ -22,4 +23,4 @@ FROM ${ARCH}alpine:3.21.0
 COPY --from=builder /app/lxp-bridge-go /bin/lxp-bridge-go
 WORKDIR /var/lib/lxp-bridge-go/
 
-CMD ["/bin/lxp-bridge-go","-configFile=/var/lib/lxp-bridge-go/config.json"]
+CMD ["/bin/lxp-bridge-go","-configFile=/var/lib/lxp-bridge-go/config.yaml"]

@@ -58,7 +58,7 @@ func (c *client) Connect() {
 	logrus.Infof("Connecting to %s", fmt.Sprintf("tcp://%s:%d", c.config.Host, c.config.Port))
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", c.config.Host, c.config.Port))
-	opts.SetClientID("go_mqtt_client")
+	opts.SetClientID(c.config.ClientName)
 	opts.SetDefaultPublishHandler(c.messagePubHandler)
 	opts.SetUsername(c.config.Username)
 	opts.SetPassword(c.config.Password)

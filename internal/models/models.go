@@ -15,6 +15,7 @@ type MQTTConfig struct {
 	Enabled       bool                `yaml:"enabled"`
 	Host          string              `yaml:"host"`
 	Port          int                 `yaml:"port"`
+	ClientName    string              `yaml:"clientName"`
 	Username      string              `yaml:"username"`
 	Password      string              `yaml:"password"`
 	NameSpace     string              `yaml:"namespace"`

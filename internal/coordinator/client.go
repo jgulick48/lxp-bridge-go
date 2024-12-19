@@ -96,6 +96,7 @@ func (c *client) ReportPowerOpenEVSE(soc, batteryPower int32) {
 
 func (c *client) Done() {
 	for _, inverterClient := range c.modbusClients {
+		inverterClient.modbusClient.Close()
 		inverterClient.done <- true
 	}
 	c.mqttClient.Close()
