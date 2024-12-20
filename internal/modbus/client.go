@@ -37,13 +37,15 @@ func NewClient(config models.LXPConfig, logger *logrus.Logger, callback ParserCa
 		logger:   logger,
 		callBack: callback,
 	}
+	if c.config.ReadTimeout == 0 {
+		c.config.ReadTimeout = 300 * time.Second
+	}
 	go c.processMessages()
 	go c.sendCommands()
 	return &c
 }
 
 func (c *client) Connect() {
-	c.done = make(chan bool)
 	go func() {
 		var done bool
 		for !done {

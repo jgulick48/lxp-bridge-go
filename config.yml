@@ -6,6 +6,10 @@ inverters:
     serial: 3192670065
     heartbeats: false
     read_timeout: 300s
+    short_read: 30s
+    long_read: -1s
+
+
 mqtt:
   enabled: true
   host: 10.0.13.40

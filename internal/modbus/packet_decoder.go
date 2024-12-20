@@ -23,7 +23,7 @@ func Decode(src []byte, callback ParserCallback) (*Packet, error) {
 	if srcLen <= 8 {
 		return nil, errors.New("Not enough data to read packets")
 	}
-	log.Infof("%v", src)
+	//log.Infof("%v", src)
 
 	if !bytes.Equal(src[:2], []byte{161, 26}) {
 		return nil, errors.New("161, 26 header not found")
@@ -31,17 +31,19 @@ func Decode(src []byte, callback ParserCallback) (*Packet, error) {
 	// protocol is in src[2..4], not used here yet
 	//log.Infof("Protocol version: %v", binary.LittleEndian.Uint16(src[2:4]))
 	packetLen := binary.LittleEndian.Uint16(src[4:6])
-	log.Infof("Packet length: %v", packetLen)
+	//log.Infof("Packet length: %v", packetLen)
 
 	// packetLen excludes the first 6 bytes, re-add those to make maths easier
 	//frameLen := 6 + int(packetLen)
 	//log.Infof("TCP Function: %s", src[7:8])
 
 	data := src[18:]
-	log.Infof("Data Lenght: %v", len(data))
+	//log.Infof("Data Lenght: %v", len(data))
 
 	//log.Infof("total length %v %d bytes in: %v\n", frameLen, len(data), data)
-
+	if src[7] == 0xc2 {
+		log.Infof("Got new Packet from Inverter with Translated Data and Length %v", src[7:8], packetLen)
+	}
 	packet, err := ParsePacket(data, src[7], callback, string(src[8:18])) // Implement ParsePacket according to your needs
 	if err != nil {
 		return nil, err
@@ -50,29 +52,33 @@ func Decode(src []byte, callback ParserCallback) (*Packet, error) {
 	return packet, nil
 }
 
-func BuildPacket(dataLogger, serial string, mode, function byte, register, value uint16) []byte {
+func BuildPacket(dataLogger, serial string, mode, function byte, register uint16, values ...byte) []byte {
 	packetStart := []byte{0xa1, 0x1a, 1, 0}
 	packet := []byte{1, 0xc2}
 	packet = append(packet, []byte(dataLogger)...)
 	data := []byte{mode, function}
 	data = append(data, []byte(serial)...)
-	data = append(data, getBytesForUInt16(register)...)
-	data = append(data, getBytesForUInt16(value)...)
+	data = append(data, GetBytesForUInt16(register)...)
+	data = append(data, values...)
 	table := crc16.MakeTable(crc16.CRC16_MODBUS)
-	data = append(data, getBytesForUInt16(crc16.Checksum(data, table))...)
-	data = append(getBytesForUInt16(uint16(len(data))), data...)
+	data = append(data, GetBytesForUInt16(crc16.Checksum(data, table))...)
+	data = append(GetBytesForUInt16(uint16(len(data))), data...)
 	data = append(packet, data...)
-	packetStart = append(packetStart, getBytesForUInt16(uint16(len(data)))...)
+	packetStart = append(packetStart, GetBytesForUInt16(uint16(len(data)))...)
 	data = append(packetStart, data...)
 	return data
 }
 
-func getBytesForUInt16(value uint16) []byte {
+func GetBytesForUInt16(value uint16) []byte {
 	result := make([]byte, 2)
 	binary.LittleEndian.PutUint16(result, value)
 	return result
 }
-
+func GetBytesForUInt32(value uint32) []byte {
+	result := make([]byte, 4)
+	binary.LittleEndian.PutUint32(result, value)
+	return result
+}
 func ParsePacket(data []byte, function byte, callback ParserCallback, dataLogger string) (*Packet, error) {
 	switch function {
 	case 0xc1:
@@ -80,61 +86,141 @@ func ParsePacket(data []byte, function byte, callback ParserCallback, dataLogger
 	case 0xc2:
 		//log.Info("Got Translated Data")
 		//log.Infof("Address: %v", data[2])
-		//log.Infof("Function: %v", data[3])
 		dataLength := int(binary.LittleEndian.Uint16(data[14:16]))
-		log.Infof("Data Length: %v", dataLength)
+		log.Infof("Attempting to parse packet with Function: %v and Data Length %v", data[3], dataLength)
+		//log.Infof("Function: %v", data[3])
+		//log.Infof("Data Length: %v", dataLength)
 		//log.Infof("%v", data[17:])
 		if data[3] == 4 {
 			switch dataLength {
 			case 0:
 				ReadInput1(data[17:], callback, dataLogger)
 				if len(data) > 130 {
+					log.Info("Parsing Inputs 1, 2, 3, and 4 Short")
 					ReadInput2(data[97:], callback, dataLogger)
 					ReadInput3(data[177:], callback, dataLogger)
 					ReadInput4Short(data[257:], callback, dataLogger)
+				} else {
+					log.Info("Parsing Input 1")
 				}
 			case 40:
+				log.Info("Parsing Input 2")
 				ReadInput2(data[17:], callback, dataLogger)
 			case 80:
+				log.Info("Parsing Input 3")
 				ReadInput3(data[17:], callback, dataLogger)
 			case 120:
+				log.Info("Parsing Input 4")
 				ReadInput4(data[17:], callback, dataLogger)
 			case 127:
+				log.Info("Parsing Input 4 Long")
 				ReadInput4Long(data[17:], callback, dataLogger)
 			}
 		}
 		if data[3] == 3 {
 			switch dataLength {
 			case 0:
-				ReadHold1(data[17:])
+				ReadHold1(data[17:], callback, dataLogger)
+				if len(data) > 130 {
+					log.Info("Parsing Holds 1, 2, 3, and 4 Short")
+					ReadHold2(data[97:], callback, dataLogger)
+					ReadHold3(data[177:], callback, dataLogger)
+					ReadHold4Short(data[257:], callback, dataLogger)
+				} else {
+					log.Info("Parsing Hold 1")
+				}
 			case 40:
-				ReadHold2(data[17:])
+				log.Info("Parsing Hold 2")
+				ReadHold2(data[17:], callback, dataLogger)
 			case 80:
-				ReadHold3(data[17:])
+				log.Info("Parsing Hold 3")
+				ReadHold3(data[17:], callback, dataLogger)
 			case 120:
-				ReadHold4(data[17:])
+				log.Info("Parsing Hold 4")
+				ReadHold4(data[17:], callback, dataLogger)
+			case 127:
+				log.Info("Parsing Hold 4 Long and 5")
+				ReadHold4Long(data[17:], callback, dataLogger)
+				ReadHold5(data[83:], callback, dataLogger)
 			case 160:
-				ReadHold4(data[17:])
+				log.Info("Parsing Hold 5")
+				ReadHold5(data[17:], callback, dataLogger)
 			}
+		}
+		if data[3] == 6 {
+			ReadHoldSingle(data[14:], callback, dataLogger)
 		}
 	}
 	return &Packet{}, nil
 }
 
-func ReadHold1(data []byte) {
+func ReadHoldSingle(data []byte, callback ParserCallback, dataLogger string) {
+	if len(data) < 4 {
+		log.Infof("Not enough data got %v bytes but was expecting more than 4", len(data))
+		return
+	}
+	registerID := int(binary.LittleEndian.Uint16(data[0:2]))
+	holdRegister, ok := registers.HoldIDToRegisterMap[registerID]
+	if !ok {
+		return
+	}
+	var value int32
+	register, ok := registers.HoldRegisters[holdRegister]
+	if !ok {
+		return
+	}
+	if register.RegisterLength == 0 {
+		if len(data) < 6 {
+			log.Infof("Not enough data got %v bytes but was expecting more than 6", len(data))
+			return
+		}
+		value = int32(binary.LittleEndian.Uint16(data[2:4]))
+	}
+	if register.RegisterLength == 1 {
+		if len(data) < 8 {
+			log.Infof("Not enough data got %v bytes but was expecting more than 8", len(data))
+			return
+		}
+		value = int32(binary.LittleEndian.Uint32(data[2:6]))
+	}
+	callback.ReportValue(register, value, dataLogger)
+}
+
+func ReadHold1(data []byte, callback ParserCallback, dataLogger string) {
+	if len(data) < 80 {
+		log.Infof("Not enough data got %v bytes but was expecting 80", len(data))
+		return
+	}
+	callback.ReportValue(registers.HoldRegisters[registers.Language], int32(data[32:33][0]), dataLogger)
+	callback.ReportValue(registers.HoldRegisters[registers.PV_Input_Model], int32(data[40:41][0]), dataLogger)
+	log.Infof("Got Message %v", data)
 
 }
-func ReadHold2(data []byte) {
+func ReadHold2(data []byte, callback ParserCallback, dataLogger string) {
 
 }
-func ReadHold3(data []byte) {
+func ReadHold3(data []byte, callback ParserCallback, dataLogger string) {
 
 }
-func ReadHold4(data []byte) {
+func ReadHold4(data []byte, callback ParserCallback, dataLogger string) {
 	log.Infof("State: %v", binary.LittleEndian.Uint16(data[0:2]))
 }
-func ReadHold5(data []byte) {
+func ReadHold4Short(data []byte, callback ParserCallback, dataLogger string) {
 	log.Infof("State: %v", binary.LittleEndian.Uint16(data[0:2]))
+}
+func ReadHold4Long(data []byte, callback ParserCallback, dataLogger string) {
+	log.Infof("State: %v", binary.LittleEndian.Uint16(data[0:2]))
+}
+func ReadHold5(data []byte, callback ParserCallback, dataLogger string) {
+	if len(data) < 80 {
+		log.Infof("Not enough data got %v bytes but was expecting 80", len(data))
+		return
+	}
+	callback.ReportValue(registers.HoldRegisters[registers.Gen_Chg_Start_Volt], int32(binary.LittleEndian.Uint16(data[68:70])), dataLogger)
+	callback.ReportValue(registers.HoldRegisters[registers.Gen_Chg_End_Volt], int32(binary.LittleEndian.Uint16(data[70:72])), dataLogger)
+	callback.ReportValue(registers.HoldRegisters[registers.Gen_Chg_Start_SOC], int32(binary.LittleEndian.Uint16(data[72:74])), dataLogger)
+	callback.ReportValue(registers.HoldRegisters[registers.Gen_Chg_End_SOC], int32(binary.LittleEndian.Uint16(data[74:76])), dataLogger)
+	callback.ReportValue(registers.HoldRegisters[registers.Max_Gen_Chg_Bat_Curr], int32(binary.LittleEndian.Uint16(data[76:78])), dataLogger)
 }
 func ReadInput1(data []byte, callback ParserCallback, dataLogger string) {
 	if len(data) < 80 {
