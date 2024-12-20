@@ -8,10 +8,12 @@ import (
 //go:generate stringer -linecomment -type InputRegister
 //go:generate stringer -linecomment -type HoldRegister
 //go:generate stringer -linecomment -type RegisterType
+//go:generate stringer -linecomment -type HomeAssistantType
 
 type InputRegister int
 type HoldRegister int
 type RegisterType int
+type HomeAssistantType int
 
 const (
 	AC_INPUT_TYPE InputRegister = iota
@@ -146,25 +148,54 @@ const (
 
 const (
 	Charge_Power_Percent_CMD HoldRegister = iota
+	Connect_Time
+	Gen_Chg_Start_Volt
+	Gen_Chg_End_Volt
+	Gen_Chg_Start_SOC
+	Gen_Chg_End_SOC
+	Gen_Rate_power
+	Grid_Volt_Conn_Low
+	Grid_Volt_Conn_High
+	Grid_Freq_Conn_Low
+	Grid_Freq_Conn_High
+	Language
+	Max_Gen_Chg_Bat_Curr
+	Reconnect_Time
+	Start_PV_Volt
+	PV_Input_Model
+)
+
+const (
+	Sensor HomeAssistantType = iota
+	Switch
+	Number
+	Text
 )
 
 type Register struct {
 	ShortName string
 	RegisterType
+	HomeAssistantType
+	Writeable      bool
+	RegisterLength int
 	Name           string
 	Multiplier     float32
 	EntityCategory string
 	StateClass     string
 	DeviceClass    string
+	Pattern        string
 	Unit           string
 	Min            int
 	Max            int
 	Step           float32
 }
 
-func (r *Register) ToJson(device Device, namespace, datalogger string) RegisterJson {
+func (r *Register) ToJson(id int, device Device, namespace, datalogger string) RegisterJson {
 	var commandTopic string
 	if r.RegisterType == Hold {
+		if r.Writeable {
+			commandTopic = fmt.Sprintf("%s/cmd/%s/set/hold/%v", namespace, datalogger, HoldRegisterToIDMap[HoldRegister(id)])
+		}
 
 	}
 	return RegisterJson{
@@ -178,9 +209,9 @@ func (r *Register) ToJson(device Device, namespace, datalogger string) RegisterJ
 		DeviceClass:       r.DeviceClass,
 		ValueTemplate:     "",
 		UnitOfMeasurement: r.Unit,
-		Min:               r.Min,
-		Max:               r.Max,
-		Step:              r.Step,
+		Min:               float32(r.Min) * r.Multiplier,
+		Max:               float32(r.Max) * r.Multiplier,
+		Step:              r.Step * r.Multiplier,
 	}
 }
 
@@ -196,9 +227,10 @@ type RegisterJson struct {
 	ValueTemplate     string            `json:"value_template,omitempty"`
 	UnitOfMeasurement string            `json:"unit_of_measurement"`
 	Availability      map[string]string `json:"availability,omitempty"`
-	Min               int               `json:"min,omitempty"`
-	Max               int               `json:"max,omitempty"`
+	Min               float32           `json:"min,omitempty"`
+	Max               float32           `json:"max,omitempty"`
 	Step              float32           `json:"step,omitempty"`
+	Pattern           string            `json:"pattern,omitempty"`
 }
 
 type Device struct {
@@ -207,14 +239,145 @@ type Device struct {
 	Identifiers  []string `json:"identifiers"`
 }
 
+var HoldIDToRegisterMap = map[int]HoldRegister{
+	16:  Language,
+	20:  PV_Input_Model,
+	22:  Start_PV_Volt,
+	23:  Connect_Time,
+	24:  Reconnect_Time,
+	25:  Grid_Volt_Conn_Low,
+	26:  Grid_Volt_Conn_High,
+	27:  Grid_Freq_Conn_Low,
+	28:  Grid_Freq_Conn_High,
+	64:  Charge_Power_Percent_CMD,
+	194: Gen_Chg_Start_Volt,
+	195: Gen_Chg_End_Volt,
+	196: Gen_Chg_Start_SOC,
+	197: Gen_Chg_End_SOC,
+	198: Max_Gen_Chg_Bat_Curr,
+}
+
+var HoldRegisterToIDMap = map[HoldRegister]int{
+	Language:                 16,
+	PV_Input_Model:           20,
+	Start_PV_Volt:            22,
+	Connect_Time:             23,
+	Reconnect_Time:           24,
+	Grid_Volt_Conn_Low:       25,
+	Grid_Volt_Conn_High:      26,
+	Grid_Freq_Conn_Low:       27,
+	Grid_Freq_Conn_High:      28,
+	Charge_Power_Percent_CMD: 64,
+	Gen_Chg_Start_Volt:       194,
+	Gen_Chg_End_Volt:         195,
+	Gen_Chg_Start_SOC:        196,
+	Gen_Chg_End_SOC:          197,
+	Max_Gen_Chg_Bat_Curr:     198,
+}
+
 // HoldRegisters are settings that can be changed on the inverter
 var HoldRegisters = map[HoldRegister]Register{
+	Language: {
+		RegisterType:      Hold,
+		ShortName:         Language.String(),
+		Name:              "Language (0=English 1=German)",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+	},
+	PV_Input_Model: {
+		RegisterType:      Hold,
+		ShortName:         PV_Input_Model.String(),
+		Name:              "PV Input Mode",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+	},
 	Charge_Power_Percent_CMD: {
-		RegisterType:   Hold,
-		ShortName:      Charge_Power_Percent_CMD.String(),
-		Name:           "Charging power percentage setting",
-		EntityCategory: "diagnostic",
-		Multiplier:     1,
+		RegisterType:      Hold,
+		ShortName:         Charge_Power_Percent_CMD.String(),
+		Name:              "Charging power percentage setting",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+	},
+	Start_PV_Volt: {
+		RegisterType:      Hold,
+		ShortName:         Start_PV_Volt.String(),
+		Name:              "PV Working Starting Voltage",
+		HomeAssistantType: Number,
+		Multiplier:        0.1,
+		Unit:              "V",
+		Min:               900,
+		Max:               5000,
+		Step:              1,
+	},
+	Connect_Time: {
+		RegisterType:      Hold,
+		ShortName:         Connect_Time.String(),
+		Name:              "Grid Connection Waiting Time",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		Unit:              "s",
+		Min:               30,
+		Max:               600,
+		Step:              1,
+	},
+	Reconnect_Time: {
+		RegisterType:      Hold,
+		ShortName:         Reconnect_Time.String(),
+		Name:              "Reconnection Waiting Time",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		Unit:              "s",
+		Min:               0,
+		Max:               900,
+		Step:              1,
+	},
+	Gen_Chg_Start_Volt: {
+		RegisterType:      Hold,
+		ShortName:         Gen_Chg_Start_Volt.String(),
+		Name:              "Generator Charging Start Battery Voltage",
+		HomeAssistantType: Number,
+		Multiplier:        0.1,
+		Unit:              "V",
+		Min:               384,
+		Max:               520,
+		Step:              1,
+		Writeable:         true,
+	},
+	Gen_Chg_End_Volt: {
+		RegisterType:      Hold,
+		ShortName:         Gen_Chg_End_Volt.String(),
+		Name:              "Generator Charging End Battery Voltage",
+		HomeAssistantType: Number,
+		Multiplier:        0.1,
+		Unit:              "V",
+		Min:               480,
+		Max:               590,
+		Step:              1,
+		Writeable:         true,
+	},
+	Gen_Chg_Start_SOC: {
+		RegisterType:      Hold,
+		ShortName:         Gen_Chg_Start_SOC.String(),
+		Name:              "Generator Charging End Battery Voltage",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		Unit:              "%",
+		Min:               0,
+		Max:               90,
+		Step:              1,
+		Writeable:         true,
+	},
+	Gen_Chg_End_SOC: {
+		RegisterType:      Hold,
+		ShortName:         Gen_Chg_End_SOC.String(),
+		Name:              "Generator Charging End Battery Voltage",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		Unit:              "%",
+		Min:               0,
+		Max:               90,
+		Step:              1,
+		Writeable:         true,
 	},
 }
 
