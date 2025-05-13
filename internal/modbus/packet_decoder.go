@@ -42,7 +42,7 @@ func Decode(src []byte, callback ParserCallback) (*Packet, error) {
 
 	//log.Infof("total length %v %d bytes in: %v\n", frameLen, len(data), data)
 	if src[7] == 0xc2 {
-		log.Infof("Got new Packet from Inverter with Translated Data and Length %v", src[7:8], packetLen)
+		log.Infof("Got new Packet from Inverter with Translated Data and Length %v", packetLen)
 	}
 	packet, err := ParsePacket(data, src[7], callback, string(src[8:18])) // Implement ParsePacket according to your needs
 	if err != nil {

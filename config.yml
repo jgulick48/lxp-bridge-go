@@ -8,6 +8,7 @@ inverters:
     read_timeout: 300s
     short_read: 30s
     long_read: -1s
+    health_check_duration: 3m
 
 
 mqtt:

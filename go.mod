@@ -1,6 +1,6 @@
 module github.com/jgulick48/lxp-bridge-go
 
-go 1.23.1
+go 1.24.1
 
 require (
 	github.com/DataDog/datadog-go v4.8.3+incompatible
@@ -17,7 +17,11 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	golang.org/x/net v0.32.0 // indirect
-	golang.org/x/sync v0.10.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
+	golang.org/x/mod v0.24.0 // indirect
+	golang.org/x/net v0.40.0 // indirect
+	golang.org/x/sync v0.14.0 // indirect
+	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/tools v0.33.0 // indirect
 )
+
+tool golang.org/x/tools/cmd/stringer

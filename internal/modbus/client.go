@@ -7,6 +7,7 @@ import (
 	"github.com/jgulick48/lxp-bridge-go/internal/models"
 	"github.com/sirupsen/logrus"
 	"net"
+	"sync"
 	"time"
 )
 
@@ -14,18 +15,21 @@ type Client interface {
 	Connect()
 	SendCommand(command []byte)
 	Close()
+	GetTimeSinceLastMessage() time.Duration
 }
 
 type client struct {
-	writer           *bufio.Writer
-	reader           *bufio.Reader
-	config           models.LXPConfig
-	logger           *logrus.Logger
-	messages         chan byte
-	returnedMessages chan byte
-	commands         chan []byte
-	done             chan bool
-	callBack         ParserCallback
+	writer              *bufio.Writer
+	reader              *bufio.Reader
+	config              models.LXPConfig
+	logger              *logrus.Logger
+	messages            chan byte
+	returnedMessages    chan byte
+	commands            chan []byte
+	done                chan bool
+	callBack            ParserCallback
+	lastMessageReceived time.Time
+	mux                 sync.Mutex
 }
 
 func NewClient(config models.LXPConfig, logger *logrus.Logger, callback ParserCallback) Client {
@@ -43,6 +47,12 @@ func NewClient(config models.LXPConfig, logger *logrus.Logger, callback ParserCa
 	go c.processMessages()
 	go c.sendCommands()
 	return &c
+}
+
+func (c *client) GetTimeSinceLastMessage() time.Duration {
+	c.mux.Lock()
+	defer c.mux.Unlock()
+	return time.Now().Sub(c.lastMessageReceived)
 }
 
 func (c *client) Connect() {
@@ -88,13 +98,13 @@ func (c *client) SendCommand(command []byte) {
 
 func (c *client) sendCommands() {
 	for m := range c.commands {
-		timer := time.Now()
-		n, err := c.writer.Write(m)
+		//timer := time.Now()
+		_, err := c.writer.Write(m)
 		if err != nil {
 			logrus.Errorf("Error sending command: %s", err.Error())
 		}
 		_ = c.writer.Flush()
-		logrus.Infof("Wrote %v bytes to connection in %s %v", n, time.Now().Sub(timer), m)
+		//logrus.Infof("Wrote %v bytes to connection in %s %v", n, time.Now().Sub(timer), m)
 		time.Sleep(time.Second)
 	}
 }
@@ -128,6 +138,9 @@ func (c *client) processMessages() {
 			messageLengthRemaining--
 		}
 		if byteCount > 5 && messageLengthRemaining == 0 {
+			c.mux.Lock()
+			c.lastMessageReceived = time.Now()
+			c.mux.Unlock()
 			_, _ = Decode(message, c.callBack)
 			message = make([]byte, 0)
 			byteCount = 0

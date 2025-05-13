@@ -11,6 +11,7 @@ import (
 	"github.com/jgulick48/lxp-bridge-go/internal/registers"
 	"github.com/sirupsen/logrus"
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 
 type Client interface {
 	Done()
+	GetHealth() int
 }
 
 type client struct {
@@ -73,14 +75,33 @@ func NewClient(config models.Config, logger *logrus.Logger) Client {
 		subTopics = append(subTopics, fmt.Sprintf("%s/cmd/%s/set/#", config.MQTTConfig.NameSpace, modConfig.DataLog))
 	}
 	c.mqttClient.SubMultiple(subTopics)
+	http.HandleFunc("/health", c.healthCheckHandler)
+	go func() {
+		_ = http.ListenAndServe("0.0.0.0:8080", nil)
+	}()
 	return &c
+}
+
+func (c *client) healthCheckHandler(w http.ResponseWriter, r *http.Request) {
+	status := c.GetHealth()
+	logrus.Infof("Got Heatlhcheck request sending status %v", status)
+	w.WriteHeader(status)
+}
+
+func (c *client) GetHealth() int {
+	for _, modC := range c.modbusClients {
+		if modC.config.HealthCheckDuration > modC.modbusClient.GetTimeSinceLastMessage() {
+			return http.StatusRequestedRangeNotSatisfiable
+		}
+	}
+	return http.StatusNoContent
 }
 
 func (c *client) ReportValue(register registers.Register, value int32, dataLogger string) {
 	topic := fmt.Sprintf("%s/%s/%s/%s", c.config.MQTTConfig.NameSpace, dataLogger, strings.ToLower(register.RegisterType.String()), strings.ToLower(register.ShortName))
 	floatVal := float32(value)
 	floatVal = floatVal * register.Multiplier
-	_ = c.mqttClient.SendMessage(topic, fmt.Sprintf("%v", floatVal), false)
+	_ = c.mqttClient.SendMessage(topic, fmt.Sprintf("%v", floatVal), true)
 	if metrics.StatsEnabled {
 		metrics.SendGaugeMetric(fmt.Sprintf("%s_%s", c.config.MQTTConfig.NameSpace, strings.ToLower(register.ShortName)), []string{metrics.FormatTag("deploymentID", dataLogger)}, float64(floatVal))
 	}
@@ -156,7 +177,7 @@ func (c *client) reportHomeAssistant(config models.LXPConfig) {
 		registerJson := register.ToJson(int(id), device, c.config.MQTTConfig.NameSpace, config.DataLog)
 		registerString, _ := json.Marshal(registerJson)
 		err := c.mqttClient.SendMessage(fmt.Sprintf("%s/sensor/%s/%s/config", strings.ToLower(c.config.MQTTConfig.HomeAssistant.Prefix), device.Name, strings.ToLower(register.ShortName)),
-			registerString, false)
+			registerString, true)
 		if err != nil {
 			logrus.Errorf("Error sending sensor config to homeassistant %s", err.Error())
 		}
@@ -165,7 +186,7 @@ func (c *client) reportHomeAssistant(config models.LXPConfig) {
 		registerJson := register.ToJson(int(id), device, c.config.MQTTConfig.NameSpace, config.DataLog)
 		registerString, _ := json.Marshal(registerJson)
 		err := c.mqttClient.SendMessage(fmt.Sprintf("%s/%s/%s/%s/config", strings.ToLower(c.config.MQTTConfig.HomeAssistant.Prefix), strings.ToLower(register.HomeAssistantType.String()), device.Name, strings.ToLower(register.ShortName)),
-			registerString, false)
+			registerString, true)
 		if err != nil {
 			logrus.Errorf("Error sending sensor config to homeassistant %s", err.Error())
 		}
@@ -209,7 +230,7 @@ func (c *client) setupPolling(inverter models.LXPConfig) {
 			inverterClient.modbusClient.SendCommand(modbus.BuildPacket(inverter.DataLog, inverter.Serial, 0, 0x4, 120, defaultDataLength...))
 		case <-ticker2.C:
 			logrus.Info("Polling for input 3")
-			inverterClient.modbusClient.SendCommand(modbus.BuildPacket(inverter.DataLog, inverter.Serial, 0, 0x3, 160, defaultDataLength...))
+			inverterClient.modbusClient.SendCommand(modbus.BuildPacket(inverter.DataLog, inverter.Serial, 0, 0x4, 80, defaultDataLength...))
 		case <-ticker3.C:
 			c.mqttClient.SendMessage(fmt.Sprintf("%s/LWT", c.config.MQTTConfig.NameSpace), "Online", true)
 		case <-inverterClient.done:

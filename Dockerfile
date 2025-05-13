@@ -1,10 +1,8 @@
 ARG ARCH=
 
-FROM ${ARCH}golang:1.23.4 AS builder
+FROM ${ARCH}golang:1.24.1 AS builder
 
 WORKDIR /app
-
-RUN go install golang.org/x/tools/cmd/stringer@latest
 
 COPY go.mod .
 COPY go.sum .
