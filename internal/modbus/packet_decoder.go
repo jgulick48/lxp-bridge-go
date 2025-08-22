@@ -324,7 +324,7 @@ func ReadInput3(data []byte, callback ParserCallback, dataLogger string) {
 	callback.ReportValue(registers.InputRegisters[registers.BATT_STATUS_INV], int32(binary.LittleEndian.Uint16(data[30:32])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.BATT_PARRALlEL_NUM], int32(binary.LittleEndian.Uint16(data[32:34])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.BATT_CAPACITY], int32(binary.LittleEndian.Uint16(data[34:36])), dataLogger)
-	callback.ReportValue(registers.InputRegisters[registers.BATT_CURRENT_BMS], int32(binary.LittleEndian.Uint16(data[36:38])), dataLogger)
+	callback.ReportValue(registers.InputRegisters[registers.BATT_CURRENT_BMS], uint16ToInt32(binary.LittleEndian.Uint16(data[36:38])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.Fault_Code_BMS], int32(binary.LittleEndian.Uint16(data[38:40])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.Warning_Code_BMS], int32(binary.LittleEndian.Uint16(data[40:42])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.MAX_CELL_VOLT], int32(binary.LittleEndian.Uint16(data[42:44])), dataLogger)
@@ -414,4 +414,12 @@ func ReadInput4(data []byte, callback ParserCallback, dataLogger string) {
 	callback.ReportValue(registers.InputRegisters[registers.AFCI_MAX_ARC_CH2], int32(binary.LittleEndian.Uint16(data[60:62])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.AFCI_MAX_ARC_CH3], int32(binary.LittleEndian.Uint16(data[62:64])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.AFCI_MAX_ARC_CH4], int32(binary.LittleEndian.Uint16(data[64:66])), dataLogger)
+}
+
+func uint16ToInt32(value uint16) int32 {
+	ivalue := int32(value)
+	if ivalue > 32767 {
+		ivalue = ivalue - 65535
+	}
+	return ivalue
 }
