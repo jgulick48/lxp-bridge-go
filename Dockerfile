@@ -1,6 +1,6 @@
 ARG ARCH=
 
-FROM ${ARCH}golang:1.23.4 AS builder
+FROM ${ARCH}golang:1.25.6 AS builder
 
 WORKDIR /app
 
