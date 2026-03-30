@@ -4,11 +4,12 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
-	"github.com/jgulick48/lxp-bridge-go/internal/models"
-	"github.com/sirupsen/logrus"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/jgulick48/lxp-bridge-go/internal/models"
+	"github.com/sirupsen/logrus"
 )
 
 type Client interface {
@@ -138,10 +139,12 @@ func (c *client) processMessages() {
 			messageLengthRemaining--
 		}
 		if byteCount > 5 && messageLengthRemaining == 0 {
-			c.mux.Lock()
-			c.lastMessageReceived = time.Now()
-			c.mux.Unlock()
-			_, _ = Decode(message, c.callBack)
+			_, err := Decode(message, c.callBack)
+			if err == nil {
+				c.mux.Lock()
+				c.lastMessageReceived = time.Now()
+				c.mux.Unlock()
+			}
 			message = make([]byte, 0)
 			byteCount = 0
 			continue
