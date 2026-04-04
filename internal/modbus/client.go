@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/jgulick48/lxp-bridge-go/internal/models"
@@ -16,21 +15,18 @@ type Client interface {
 	Connect()
 	SendCommand(command []byte)
 	Close()
-	GetTimeSinceLastMessage() time.Duration
 }
 
 type client struct {
-	writer              *bufio.Writer
-	reader              *bufio.Reader
-	config              models.LXPConfig
-	logger              *logrus.Logger
-	messages            chan byte
-	returnedMessages    chan byte
-	commands            chan []byte
-	done                chan bool
-	callBack            ParserCallback
-	lastMessageReceived time.Time
-	mux                 sync.Mutex
+	writer           *bufio.Writer
+	reader           *bufio.Reader
+	config           models.LXPConfig
+	logger           *logrus.Logger
+	messages         chan byte
+	returnedMessages chan byte
+	commands         chan []byte
+	done             chan bool
+	callBack         ParserCallback
 }
 
 func NewClient(config models.LXPConfig, logger *logrus.Logger, callback ParserCallback) Client {
@@ -48,12 +44,6 @@ func NewClient(config models.LXPConfig, logger *logrus.Logger, callback ParserCa
 	go c.processMessages()
 	go c.sendCommands()
 	return &c
-}
-
-func (c *client) GetTimeSinceLastMessage() time.Duration {
-	c.mux.Lock()
-	defer c.mux.Unlock()
-	return time.Now().Sub(c.lastMessageReceived)
 }
 
 func (c *client) Connect() {
@@ -139,12 +129,7 @@ func (c *client) processMessages() {
 			messageLengthRemaining--
 		}
 		if byteCount > 5 && messageLengthRemaining == 0 {
-			_, err := Decode(message, c.callBack)
-			if err == nil {
-				c.mux.Lock()
-				c.lastMessageReceived = time.Now()
-				c.mux.Unlock()
-			}
+			_, _ = Decode(message, c.callBack)
 			message = make([]byte, 0)
 			byteCount = 0
 			continue

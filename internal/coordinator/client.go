@@ -3,6 +3,12 @@ package coordinator
 import (
 	"encoding/json"
 	"fmt"
+	"log"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
 	"github.com/DataDog/datadog-go/statsd"
 	"github.com/jgulick48/lxp-bridge-go/internal/metrics"
 	"github.com/jgulick48/lxp-bridge-go/internal/modbus"
@@ -10,11 +16,6 @@ import (
 	"github.com/jgulick48/lxp-bridge-go/internal/mqtt"
 	"github.com/jgulick48/lxp-bridge-go/internal/registers"
 	"github.com/sirupsen/logrus"
-	"log"
-	"net/http"
-	"strconv"
-	"strings"
-	"time"
 )
 
 type Client interface {
@@ -90,7 +91,7 @@ func (c *client) healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 
 func (c *client) GetHealth() int {
 	for _, modC := range c.modbusClients {
-		if modC.config.HealthCheckDuration > modC.modbusClient.GetTimeSinceLastMessage() {
+		if modC.config.HealthCheckDuration > c.mqttClient.GetTimeSinceLastMessage() {
 			return http.StatusRequestedRangeNotSatisfiable
 		}
 	}

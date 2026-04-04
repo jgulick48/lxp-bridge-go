@@ -3,11 +3,14 @@ package mqtt
 import (
 	"errors"
 	"fmt"
+	"log"
+	"strings"
+	"sync"
+	"time"
+
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/jgulick48/lxp-bridge-go/internal/models"
 	"github.com/sirupsen/logrus"
-	"log"
-	"strings"
 )
 
 type Client interface {
@@ -16,17 +19,20 @@ type Client interface {
 	Connect()
 	SendMessage(topic string, value interface{}, retained bool) error
 	SubMultiple(topicList []string)
+	GetTimeSinceLastMessage() time.Duration
 }
 
 type client struct {
-	config     models.MQTTConfig
-	done       chan bool
-	mqttClient mqtt.Client
-	messages   chan mqtt.Message
-	debug      bool
-	values     map[string]map[string]float64
-	soc        int
-	callback   MessageCallback
+	config          models.MQTTConfig
+	done            chan bool
+	mqttClient      mqtt.Client
+	messages        chan mqtt.Message
+	debug           bool
+	values          map[string]map[string]float64
+	soc             int
+	callback        MessageCallback
+	mux             sync.Mutex
+	lastMessageSent time.Time
 }
 
 func NewClient(config models.MQTTConfig, debug bool, callback MessageCallback) Client {
@@ -98,9 +104,19 @@ func (c *client) SendMessage(topic string, value interface{}, retained bool) err
 	if c.mqttClient != nil {
 		token := c.mqttClient.Publish(topic, 0, retained, value)
 		token.Wait()
+		if token.Error() == nil {
+			c.mux.Lock()
+			c.lastMessageSent = time.Now()
+			c.mux.Unlock()
+		}
 		return token.Error()
 	}
 	return errors.New("mqtt client not initialized")
+}
+func (c *client) GetTimeSinceLastMessage() time.Duration {
+	c.mux.Lock()
+	defer c.mux.Unlock()
+	return time.Now().Sub(c.lastMessageSent)
 }
 
 func (c *client) messagePubHandler(client mqtt.Client, msg mqtt.Message) {
