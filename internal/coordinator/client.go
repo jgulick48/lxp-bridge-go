@@ -91,7 +91,11 @@ func (c *client) healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 
 func (c *client) GetHealth() int {
 	for _, modC := range c.modbusClients {
-		if modC.config.HealthCheckDuration > c.mqttClient.GetTimeSinceLastMessage() {
+		healthCheckDuration := modC.config.HealthCheckDuration
+		if healthCheckDuration == 0 {
+			healthCheckDuration = time.Minute * 5
+		}
+		if modC.config.HealthCheckDuration < c.mqttClient.GetTimeSinceLastMessage() {
 			return http.StatusRequestedRangeNotSatisfiable
 		}
 	}
