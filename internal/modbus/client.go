@@ -68,6 +68,9 @@ func (c *client) Connect() {
 						message, err = c.reader.ReadByte()
 						if err != nil {
 							fmt.Println(fmt.Sprintf("Error reading connection: %s", err.Error()))
+							if err.Error() == "EOF" {
+								c.Close()
+							}
 						}
 						c.messages <- message
 					}
