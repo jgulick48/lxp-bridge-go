@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/DataDog/datadog-go v4.8.3+incompatible
+	github.com/DataDog/datadog-go/v5 v5.9.1
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/mitchellh/panicwrap v1.0.0
 	github.com/sigurn/crc16 v0.0.0-20240131213347-83fcde1e29d1
