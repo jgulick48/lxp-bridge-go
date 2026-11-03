@@ -22,7 +22,7 @@ This confirms that input 105 bit 3 is the generator dry contact (not bit 4 as py
 cool-down. The generator voltage was still 242 V after the contact opened, so the generator has its own shutdown delay.
 
 **Still to confirm:** whether the inverter clears holding 110 bit 7 by itself after an uninterrupted 20 minute run, and
-how the cool-down length relates to holding 237 (30, which is 3.0 minutes in 0.1 minute units; about 2 minutes was
+how the cool-down length relates to holding 237 (`gen_cool_down_time`, 30, which is 3.0 minutes in 0.1 minute units; about 2 minutes was
 observed, but block 80 is only read every `long_read`).
 
 ## Load power on battery: input 170

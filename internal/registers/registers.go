@@ -213,6 +213,7 @@ const (
 	Quick_Charge_Enable
 	AC_Charge_Type
 	Gen_Quick_Start
+	Gen_Cool_Down_Time
 )
 
 const (
@@ -375,6 +376,7 @@ var HoldIDToRegisterMap = map[int]HoldRegister{
 	198: Max_Gen_Chg_Bat_Curr,
 	202: Stop_Discharge_Volt,
 	234: Quick_Charge_Minute,
+	237: Gen_Cool_Down_Time,
 	177: Gen_Rate_power,
 }
 
@@ -423,6 +425,7 @@ var HoldRegisterToIDMap = map[HoldRegister]int{
 	Quick_Charge_Enable:         233,
 	AC_Charge_Type:              120,
 	Gen_Quick_Start:             110,
+	Gen_Cool_Down_Time:          237,
 }
 
 // HoldRegisters are settings that can be changed on the inverter
@@ -860,6 +863,20 @@ var HoldRegisters = map[HoldRegister]Register{
 		BitMask:           0x1,
 		Min:               0,
 		Max:               1,
+		Writeable:         true,
+	},
+	// Gen_Cool_Down_Time is how long the inverter keeps the generator dry
+	// contact closed after a stop, in 0.1 minute units.
+	Gen_Cool_Down_Time: {
+		RegisterType:      Hold,
+		ShortName:         Gen_Cool_Down_Time.String(),
+		Name:              "Generator Cool Down Time",
+		HomeAssistantType: Number,
+		Multiplier:        0.1,
+		Unit:              "min",
+		Min:               1,
+		Max:               255,
+		Step:              1,
 		Writeable:         true,
 	},
 	// Gen_Quick_Start is bit 7 of register 110. The EG4 website's generator
