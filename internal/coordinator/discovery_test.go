@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/jgulick48/lxp-bridge-go/internal/models"
 	"github.com/jgulick48/lxp-bridge-go/internal/modbus"
+	"github.com/jgulick48/lxp-bridge-go/internal/models"
 	"github.com/jgulick48/lxp-bridge-go/internal/registers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
