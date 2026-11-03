@@ -5,7 +5,7 @@ Input registers are read-only measurements, read with Modbus function 4. Every r
 multiplied by the scale.
 
 **Poll** is `short` for registers read every `short_read`, and `long` for block 80 (registers 80-119), which is read
-every `long_read` and never more often than every 5 minutes. See [polling and MQTT](polling-and-mqtt.md).
+every `long_read` (default 30s). See [polling and MQTT](polling-and-mqtt.md).
 
 **Example** is the raw value read from an EG4 18kPV (split-phase, 48 V battery bank) on 2026-11-03 while it charged from
 the generator with no grid connected.

@@ -47,7 +47,7 @@ inverters:
     serial: 1234567890       # inverter serial
     read_timeout: 300s
     short_read: 30s          # input blocks 0, 40, 120 and 160-204
-    long_read: 5m            # input block 80 (BMS data); never more often than 5m
+    long_read: 30s           # input block 80 (BMS data)
     hold_read: 15m           # settings
     health_check_duration: 3m
 mqtt:
@@ -71,8 +71,8 @@ Per inverter (`inverters[]`):
 * `host`, `port`, `datalog`, `serial`.
 * `read_timeout`: reconnect if no data arrives for this long (default 300s).
 * `short_read`: how often input blocks 0, 40, 120 and 160-204 are read (default 10s, `-1s` disables).
-* `long_read`: how often input block 80 (BMS data and the generator dry contact) is read (default 5m, `-1s` disables).
-  Values below 5m are raised to 5m. When disabled, block 80 is only decoded when another client such as the EG4 cloud
+* `long_read`: how often input block 80 (BMS data and the generator dry contact) is read (default 30s, `-1s` disables).
+  When disabled, block 80 is only decoded when another client such as the EG4 cloud
   dongle reads it.
 * `hold_read`: how often the holding (settings) registers are read (default 15m, `-1s` disables). When enabled they
   are also read every time the inverter connects.

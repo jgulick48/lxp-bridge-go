@@ -14,13 +14,12 @@ to **all** connected clients, so replies to requests made by the EG4 cloud dongl
 | 4 (input) | 40-79 | 40 | every `short_read` | Lifetime energy, faults, temperatures, PV currents |
 | 4 (input) | 120-159 | 40 | every `short_read` | Generator, EPS per leg, AFCI |
 | 4 (input) | 160-204 | 45 | every `short_read` | Load power and energy, per-leg grid, generator and inverter values |
-| 4 (input) | 80-119 | 40 | every `long_read` (default 5m, minimum 5m) | BMS data, cell voltages and temperatures, generator dry contact |
+| 4 (input) | 80-119 | 40 | every `long_read` (default 30s) | BMS data, cell voltages and temperatures, generator dry contact |
 | 3 (holding) | 0-239 | 6 × 40 | on connect, then every `hold_read` (default 15m) | Settings |
 | 3 (holding) | one register | 1 | before each bit-field write | The fresh value for a read-modify-write |
 
-Input block 80 is never requested more often than every 5 minutes: a smaller `long_read` is raised to 5 minutes with a
-warning. With `long_read: -1s` the bridge does not request it at all and only decodes it when another client (such as
-the EG4 cloud dongle) does.
+With `long_read: -1s` the bridge does not request input block 80 at all and only decodes it when another client (such
+as the EG4 cloud dongle) does.
 
 Requests are queued (32 deep) and sent one per second. Polls are skipped while the inverter is disconnected.
 

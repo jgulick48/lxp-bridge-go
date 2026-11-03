@@ -23,8 +23,8 @@ const (
 	defaultHealthCheckDuration = 5 * time.Minute
 	healthMetricsInterval      = 10 * time.Second
 	maxRawRegisterValue        = 65535
-	// minLongRead limits how often input block 80 (BMS data) is requested.
-	minLongRead = 5 * time.Minute
+	// defaultLongRead is how often input block 80 (BMS data) is requested.
+	defaultLongRead = 30 * time.Second
 	// defaultHoldRead is how often settings are re-read so changes made
 	// elsewhere (EG4 app, inverter screen) reach Home Assistant.
 	defaultHoldRead = 15 * time.Minute
@@ -132,11 +132,7 @@ func build(config models.Config, d deps) (*client, error) {
 			modConfig.ReadTimeout = 300 * time.Second
 		}
 		if modConfig.LongRead == 0 {
-			modConfig.LongRead = minLongRead
-		}
-		if modConfig.LongRead != -1*time.Second && modConfig.LongRead < minLongRead {
-			logrus.Warnf("long_read %s for %s is below the %s minimum for input block 80, using %s", modConfig.LongRead, modConfig.DataLog, minLongRead, minLongRead)
-			modConfig.LongRead = minLongRead
+			modConfig.LongRead = defaultLongRead
 		}
 		if modConfig.HoldRead == 0 {
 			modConfig.HoldRead = defaultHoldRead

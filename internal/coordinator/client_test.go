@@ -362,3 +362,14 @@ func TestHoldRegisterDefinitions(t *testing.T) {
 		assert.LessOrEqual(t, r.Max, int(max), "%s max does not fit its bits", r.ShortName)
 	}
 }
+
+func TestLongReadDefault(t *testing.T) {
+	c, _, _ := newTest(t, []models.LXPConfig{
+		{Enabled: true, DataLog: "A", Serial: serial},
+		{Enabled: true, DataLog: "B", Serial: serial, LongRead: 10 * time.Second},
+		{Enabled: true, DataLog: "C", Serial: serial, LongRead: -1 * time.Second},
+	}, nil)
+	assert.Equal(t, 30*time.Second, c.inverters["A"].config.LongRead)
+	assert.Equal(t, 10*time.Second, c.inverters["B"].config.LongRead)
+	assert.Equal(t, -1*time.Second, c.inverters["C"].config.LongRead)
+}
