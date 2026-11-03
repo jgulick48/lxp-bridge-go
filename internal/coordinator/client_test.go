@@ -1,6 +1,7 @@
 package coordinator
 
 import (
+	"math/bits"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -191,7 +192,13 @@ func TestHandleCommand(t *testing.T) {
 		{"gen charge volt finer than step", topic("194"), "48.55", nil},
 		{"gen charge volt raw value is out of range", topic("194"), "450", nil},
 		{"gen charge volt below min", topic("194"), "38.3", nil},
-		{"max gen chg current (not Writeable)", topic("198"), "60", nil}, // not Writeable
+		{"max gen chg current", topic("198"), "60", [][]byte{expect(198, 60)}},
+		{"max gen chg current above max", topic("198"), "251", nil},
+		{"AC charge power in kW", topic("66"), "8.5", [][]byte{expect(66, 85)}},
+		{"AC charge power above 12 kW", topic("66"), "12.1", nil},
+		{"AC charge SOC limit 101", topic("67"), "101", [][]byte{expect(67, 101)}},
+		{"stop discharge voltage", topic("202"), "44.0", [][]byte{expect(202, 440)}},
+		{"bit field register without field", topic("21"), "1", nil},
 		{"out of range high", topic("196"), "91", nil},
 		{"out of range low", topic("197"), "19", nil},
 		{"negative", topic("196"), "-1", nil},
@@ -202,7 +209,7 @@ func TestHandleCommand(t *testing.T) {
 		{"empty", topic("196"), "", nil},
 		{"huge", topic("196"), "99999999999", nil},
 		{"read-only/non-writeable hold register (language)", topic("16"), "1", nil},
-		{"non-writeable number (charge power percent)", topic("64"), "50", nil},
+		{"charge power percent", topic("64"), "50", [][]byte{expect(64, 50)}},
 		{"unknown register", topic("9999"), "1", nil},
 		{"non-numeric register", topic("abc"), "1", nil},
 		{"input register path", "lxp/cmd/" + datalog + "/set/input/1", "1", nil},
@@ -260,4 +267,98 @@ func TestCloseIsIdempotentWithoutStart(t *testing.T) {
 	c, _, _ := newTest(t, []models.LXPConfig{{Enabled: true, DataLog: datalog}}, nil)
 	c.Close()
 	c.Close()
+}
+
+func TestFieldWriteReadModifyWrite(t *testing.T) {
+	cfg := []models.LXPConfig{{Enabled: true, DataLog: datalog, Serial: serial}}
+	topic := func(reg, field string) string { return "lxp/cmd/" + datalog + "/set/hold/" + reg + "/" + field }
+	read := func(reg uint16) []byte {
+		return modbus.BuildPacket(datalog, serial, 0, 0x3, reg, modbus.GetBytesForUInt16(1)...)
+	}
+	write := func(reg, val uint16) []byte {
+		return modbus.BuildPacket(datalog, serial, 1, 0x6, reg, modbus.GetBytesForUInt16(val)...)
+	}
+	const reg21 = 25429 // live value: AC charge (bit 7) off
+
+	t.Run("switch on reads then writes one bit", func(t *testing.T) {
+		c, fakes, _ := newTest(t, cfg, nil)
+		c.HandleCommand(topic("21", "ac_charge_enable"), []byte("ON"))
+		require.Equal(t, [][]byte{read(21)}, fakes[datalog].sent())
+		c.ReportHolding(datalog, 21, []uint16{reg21})
+		assert.Equal(t, [][]byte{read(21), write(21, reg21|1<<7)}, fakes[datalog].sent())
+	})
+	t.Run("two fields of one register are merged", func(t *testing.T) {
+		c, fakes, _ := newTest(t, cfg, nil)
+		c.HandleCommand(topic("21", "ac_charge_enable"), []byte("1"))
+		c.HandleCommand(topic("21", "EPS_ENABLE"), []byte("0"))
+		c.ReportHolding(datalog, 20, []uint16{7, reg21, 0})
+		sent := fakes[datalog].sent()
+		assert.Equal(t, write(21, (reg21|1<<7)&^1), sent[len(sent)-1])
+	})
+	t.Run("no write when already set", func(t *testing.T) {
+		c, fakes, _ := newTest(t, cfg, nil)
+		c.HandleCommand(topic("179", "gen_peak_shaving_enable"), []byte("1"))
+		c.ReportHolding(datalog, 179, []uint16{4416}) // bit 8 already on
+		assert.Equal(t, [][]byte{read(179)}, fakes[datalog].sent())
+	})
+	t.Run("multi-bit field", func(t *testing.T) {
+		c, fakes, _ := newTest(t, cfg, nil)
+		c.HandleCommand(topic("120", "ac_charge_type"), []byte("2"))
+		c.ReportHolding(datalog, 120, []uint16{0x2 | 0x80}) // type 1, bit 7 set
+		sent := fakes[datalog].sent()
+		assert.Equal(t, write(120, 0x4|0x80), sent[len(sent)-1])
+	})
+	t.Run("expired change is dropped", func(t *testing.T) {
+		now := time.Unix(1000, 0)
+		c, fakes, _ := newTest(t, cfg, func() time.Time { return now })
+		c.HandleCommand(topic("21", "ac_charge_enable"), []byte("1"))
+		now = now.Add(fieldWriteTimeout + time.Second)
+		c.ReportHolding(datalog, 21, []uint16{reg21})
+		assert.Equal(t, [][]byte{read(21)}, fakes[datalog].sent())
+	})
+	t.Run("only the next read applies the change", func(t *testing.T) {
+		c, fakes, _ := newTest(t, cfg, nil)
+		c.HandleCommand(topic("21", "ac_charge_enable"), []byte("1"))
+		c.ReportHolding(datalog, 21, []uint16{reg21})
+		c.ReportHolding(datalog, 21, []uint16{reg21})
+		assert.Len(t, fakes[datalog].sent(), 2)
+	})
+	for name, tc := range map[string]struct{ topic, payload string }{
+		"unknown field":      {topic("21", "nope"), "1"},
+		"field of wrong reg": {topic("179", "ac_charge_enable"), "1"},
+		"switch value 2":     {topic("21", "ac_charge_enable"), "2"},
+		"switch garbage":     {topic("21", "ac_charge_enable"), "maybe"},
+		"ac charge type 3":   {topic("120", "ac_charge_type"), "3"},
+		"field on value reg": {topic("196", "gen_chg_start_soc"), "1"},
+		"too many segments":  {topic("21", "ac_charge_enable") + "/x", "1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, fakes, _ := newTest(t, cfg, nil)
+			c.HandleCommand(tc.topic, []byte(tc.payload))
+			assert.Empty(t, fakes[datalog].sent())
+		})
+	}
+}
+
+func TestHoldRegisterDefinitions(t *testing.T) {
+	names := map[string]bool{}
+	used := map[int]uint16{}
+	for hr, r := range registers.HoldRegisters {
+		addr, ok := registers.HoldRegisterToIDMap[hr]
+		require.True(t, ok, "%s has no address", r.ShortName)
+		assert.False(t, names[r.ShortName], "duplicate %s", r.ShortName)
+		names[r.ShortName] = true
+		if r.BitMask == 0 {
+			if r.Writeable {
+				assert.Equal(t, hr, registers.HoldIDToRegisterMap[addr], "%s", r.ShortName)
+			}
+			continue
+		}
+		_, whole := registers.HoldIDToRegisterMap[addr]
+		assert.False(t, whole, "%d is both a value register and has bit fields", addr)
+		assert.Zero(t, used[addr]&r.BitMask, "%s overlaps another field", r.ShortName)
+		used[addr] |= r.BitMask
+		max := r.BitMask >> bits.TrailingZeros16(r.BitMask)
+		assert.LessOrEqual(t, r.Max, int(max), "%s max does not fit its bits", r.ShortName)
+	}
 }

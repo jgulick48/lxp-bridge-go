@@ -1,9 +1,9 @@
 inverters:
   - enabled: true
-    host: 10.0.2.10
+    host: 192.168.1.50
     port: 8000
-    datalog: BA31101550
-    serial: 3192670065
+    datalog: BA12345678
+    serial: 1234567890
     heartbeats: false
     read_timeout: 300s
     short_read: 30s
@@ -13,7 +13,7 @@ inverters:
 
 mqtt:
   enabled: true
-  host: 10.0.13.40
+  host: 192.168.1.10
   port: 1883
   clientName: LXP_Bridge_mqtt_client
   username:
@@ -27,7 +27,7 @@ statsd:
   server: ""
 openEVSE:
   enabled: true
-  topic: "lxp/sensor/BA31101550/read/power1"
+  topic: "lxp/sensor/BA12345678/read/power1"
   SOCChargeStart: 96
   SOCChargeMax: 98
   chargeStopValue: 1700

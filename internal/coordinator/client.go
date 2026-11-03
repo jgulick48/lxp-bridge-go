@@ -23,6 +23,14 @@ const (
 	defaultHealthCheckDuration = 5 * time.Minute
 	healthMetricsInterval      = 10 * time.Second
 	maxRawRegisterValue        = 65535
+	// minLongRead limits how often input block 80 (BMS data) is requested.
+	minLongRead = 5 * time.Minute
+	// defaultHoldRead is how often settings are re-read so changes made
+	// elsewhere (EG4 app, inverter screen) reach Home Assistant.
+	defaultHoldRead = 15 * time.Minute
+	// fieldWriteTimeout is how long a bit field change waits for the read
+	// of its register before it is dropped.
+	fieldWriteTimeout = 30 * time.Second
 )
 
 // Client ties the inverter connections, MQTT and metrics together.
@@ -40,6 +48,21 @@ type Client interface {
 type inverter struct {
 	client modbus.Client
 	config models.LXPConfig
+
+	// mu guards hold and pending, which are written by the inverter read
+	// loop and by MQTT commands.
+	mu      sync.Mutex
+	hold    map[uint16]uint16      // last raw value of each holding register
+	pending map[uint16]*fieldWrite // bit field changes waiting for a fresh read
+}
+
+// fieldWrite is a change to part of a holding register. It is applied to the
+// next value read from the inverter so other bits are never overwritten with
+// stale data.
+type fieldWrite struct {
+	mask     uint16
+	value    uint16
+	deadline time.Time
 }
 
 type client struct {
@@ -109,7 +132,14 @@ func build(config models.Config, d deps) (*client, error) {
 			modConfig.ReadTimeout = 300 * time.Second
 		}
 		if modConfig.LongRead == 0 {
-			modConfig.LongRead = 60 * time.Second
+			modConfig.LongRead = minLongRead
+		}
+		if modConfig.LongRead != -1*time.Second && modConfig.LongRead < minLongRead {
+			logrus.Warnf("long_read %s for %s is below the %s minimum for input block 80, using %s", modConfig.LongRead, modConfig.DataLog, minLongRead, minLongRead)
+			modConfig.LongRead = minLongRead
+		}
+		if modConfig.HoldRead == 0 {
+			modConfig.HoldRead = defaultHoldRead
 		}
 		if modConfig.ShortRead == 0 {
 			modConfig.ShortRead = 10 * time.Second
@@ -124,7 +154,7 @@ func build(config models.Config, d deps) (*client, error) {
 		if err != nil {
 			return nil, fmt.Errorf("inverter %s: %w", modConfig.DataLog, err)
 		}
-		c.inverters[modConfig.DataLog] = &inverter{client: mc, config: modConfig}
+		c.inverters[modConfig.DataLog] = &inverter{client: mc, config: modConfig, hold: map[uint16]uint16{}, pending: map[uint16]*fieldWrite{}}
 		c.order = append(c.order, modConfig.DataLog)
 	}
 	return c, nil
@@ -329,14 +359,27 @@ func (c *client) HandleCommand(topic string, message []byte) {
 		reject("invalid register id %q", segments[5])
 		return
 	}
-	holdRegister, ok := registers.HoldIDToRegisterMap[registerID]
-	if !ok {
-		reject("unknown hold register %d", registerID)
-		return
-	}
-	register, ok := registers.HoldRegisters[holdRegister]
-	if !ok {
-		reject("unknown hold register %d", registerID)
+	var register registers.Register
+	switch len(segments) {
+	case 6:
+		holdRegister, ok := registers.HoldIDToRegisterMap[registerID]
+		if !ok {
+			reject("unknown hold register %d", registerID)
+			return
+		}
+		register, ok = registers.HoldRegisters[holdRegister]
+		if !ok {
+			reject("unknown hold register %d", registerID)
+			return
+		}
+	case 7:
+		register, ok = holdField(registerID, segments[6])
+		if !ok {
+			reject("unknown field %q of hold register %d", segments[6], registerID)
+			return
+		}
+	default:
+		reject("unexpected topic")
 		return
 	}
 	if !controllable(register) {
@@ -347,7 +390,16 @@ func (c *client) HandleCommand(topic string, message []byte) {
 		reject("register %d (%s) is not a single register", registerID, register.ShortName)
 		return
 	}
-	value, err := rawValue(register, strings.TrimSpace(string(message)))
+	payload := strings.TrimSpace(string(message))
+	if register.HomeAssistantType == registers.Switch {
+		switch strings.ToUpper(payload) {
+		case "ON", "TRUE":
+			payload = "1"
+		case "OFF", "FALSE":
+			payload = "0"
+		}
+	}
+	value, err := rawValue(register, payload)
 	if err != nil {
 		reject("%v", err)
 		return
@@ -357,10 +409,79 @@ func (c *client) HandleCommand(topic string, message []byte) {
 		reject("value %d outside allowed range %d..%d for register %d (%s)", value, min, max, registerID, register.ShortName)
 		return
 	}
+	if register.BitMask != 0 {
+		c.queueFieldWrite(inv, uint16(registerID), register, uint16(value))
+		return
+	}
 	logrus.Infof("Accepted register write: datalog=%s register=%d (%s) value=%d", inv.config.DataLog, registerID, register.ShortName, value)
 	bitValue := modbus.GetBytesForUInt16(uint16(value))
 	command := modbus.BuildPacket(inv.config.DataLog, inv.config.Serial, 1, 0x6, uint16(registerID), bitValue...)
 	inv.client.SendCommand(command)
+}
+
+// holdField finds the bit field register named name (case-insensitive) in
+// hold register id.
+func holdField(id int, name string) (registers.Register, bool) {
+	for hr, addr := range registers.HoldRegisterToIDMap {
+		if addr != id {
+			continue
+		}
+		r, ok := registers.HoldRegisters[hr]
+		if ok && r.BitMask != 0 && strings.EqualFold(r.ShortName, name) {
+			return r, true
+		}
+	}
+	return registers.Register{}, false
+}
+
+// queueFieldWrite records a bit field change and reads the register; the
+// change is written once the fresh value arrives (see ReportHolding).
+func (c *client) queueFieldWrite(inv *inverter, addr uint16, register registers.Register, value uint16) {
+	inv.mu.Lock()
+	fw := inv.pending[addr]
+	if fw == nil {
+		fw = &fieldWrite{}
+		inv.pending[addr] = fw
+	}
+	fw.mask |= register.BitMask
+	fw.value = register.SetField(fw.value, value)
+	fw.deadline = c.now().Add(fieldWriteTimeout)
+	inv.mu.Unlock()
+	logrus.Infof("Accepted field write: datalog=%s register=%d (%s) value=%d, reading register first", inv.config.DataLog, addr, register.ShortName, value)
+	inv.client.SendCommand(modbus.BuildPacket(inv.config.DataLog, inv.config.Serial, 0, 0x3, addr, modbus.GetBytesForUInt16(1)...))
+}
+
+// ReportHolding receives raw holding register values from the inverter. It
+// caches them and writes any pending bit field changes on top of the fresh
+// values.
+func (c *client) ReportHolding(dataLogger string, start uint16, values []uint16) {
+	inv, ok := c.inverters[dataLogger]
+	if !ok {
+		return
+	}
+	now := c.now()
+	inv.mu.Lock()
+	defer inv.mu.Unlock()
+	for i, v := range values {
+		addr := start + uint16(i)
+		inv.hold[addr] = v
+		fw, ok := inv.pending[addr]
+		if !ok {
+			continue
+		}
+		delete(inv.pending, addr)
+		if now.After(fw.deadline) {
+			logrus.Warnf("Dropped field write to register %d on %s: no read reply in %s", addr, dataLogger, fieldWriteTimeout)
+			continue
+		}
+		next := v&^fw.mask | fw.value&fw.mask
+		if next == v {
+			logrus.Infof("Register %d on %s already has the requested value %d", addr, dataLogger, v)
+			continue
+		}
+		logrus.Infof("Writing register %d on %s: %d -> %d", addr, dataLogger, v, next)
+		inv.client.SendCommand(modbus.BuildPacket(inv.config.DataLog, inv.config.Serial, 1, 0x6, addr, modbus.GetBytesForUInt16(next)...))
+	}
 }
 
 // rawValue converts a command payload to the register's raw value. Home
@@ -394,36 +515,40 @@ func (c *client) reportHomeAssistant(config models.LXPConfig) {
 		Name:         fmt.Sprintf("%s_%s", c.config.MQTTConfig.NameSpace, config.DataLog),
 		Identifiers:  []string{fmt.Sprintf("%s_%s", c.config.MQTTConfig.NameSpace, config.DataLog)},
 	}
-	for id, register := range registers.InputRegisters {
-		registerJson := register.ToJson(int(id), device, c.config.MQTTConfig.NameSpace, config.DataLog)
-		registerString, _ := json.Marshal(registerJson)
-		err := c.mqtt.SendMessage(fmt.Sprintf("%s/sensor/%s/%s/config", strings.ToLower(c.config.MQTTConfig.HomeAssistant.Prefix), device.Name, strings.ToLower(register.ShortName)),
-			registerString, true)
-		if err != nil {
+	publish := func(id int, register registers.Register) {
+		registerString, _ := json.Marshal(register.ToJson(id, device, c.config.MQTTConfig.NameSpace, config.DataLog))
+		topic := fmt.Sprintf("%s/%s/%s/%s/config", strings.ToLower(c.config.MQTTConfig.HomeAssistant.Prefix), strings.ToLower(register.DiscoveryType().String()), device.Name, strings.ToLower(register.ShortName))
+		if err := c.mqtt.SendMessage(topic, registerString, true); err != nil {
 			logrus.Errorf("Error sending sensor config to homeassistant %s", err.Error())
 		}
 	}
+	for id, register := range registers.InputRegisters {
+		publish(int(id), register)
+	}
 	for id, register := range registers.HoldRegisters {
-		registerJson := register.ToJson(int(id), device, c.config.MQTTConfig.NameSpace, config.DataLog)
-		registerString, _ := json.Marshal(registerJson)
-		err := c.mqtt.SendMessage(fmt.Sprintf("%s/%s/%s/%s/config", strings.ToLower(c.config.MQTTConfig.HomeAssistant.Prefix), strings.ToLower(register.HomeAssistantType.String()), device.Name, strings.ToLower(register.ShortName)),
-			registerString, true)
-		if err != nil {
-			logrus.Errorf("Error sending sensor config to homeassistant %s", err.Error())
-		}
+		publish(int(id), register)
 	}
 }
 
 func (c *client) sendHoldingPolls(inv *inverter) {
 	n := modbus.GetBytesForUInt16(40)
-	for _, start := range []uint16{0, 40, 80, 120, 160} {
+	for _, start := range []uint16{0, 40, 80, 120, 160, 200} {
 		inv.client.SendCommand(modbus.BuildPacket(inv.config.DataLog, inv.config.Serial, 0, 0x3, start, n...))
 	}
 }
 
+// inputBlockLength is how many registers to read from start. Block 160 is
+// read through 204 to include the per-leg grid and generator values.
+func inputBlockLength(start uint16) uint16 {
+	if start == 160 {
+		return 45
+	}
+	return 40
+}
+
 func (c *client) setupPolling(ctx context.Context, inv *inverter) {
 	cfg := inv.config
-	var short, long <-chan time.Time
+	var short, long, hold <-chan time.Time
 	if cfg.ShortRead != -1*time.Second {
 		t := time.NewTicker(cfg.ShortRead)
 		defer t.Stop()
@@ -434,12 +559,17 @@ func (c *client) setupPolling(ctx context.Context, inv *inverter) {
 		defer t.Stop()
 		long = t.C
 	}
+	holdEnabled := cfg.HoldRead != -1*time.Second
+	if holdEnabled {
+		t := time.NewTicker(cfg.HoldRead)
+		defer t.Stop()
+		hold = t.C
+	}
 	lwt := time.NewTicker(20 * time.Second)
 	defer lwt.Stop()
 	connCheck := time.NewTicker(time.Second)
 	defer connCheck.Stop()
 
-	defaultDataLength := modbus.GetBytesForUInt16(40)
 	wasConnected := false
 	poll := func(function byte, starts ...uint16) {
 		if !inv.client.Connected() {
@@ -447,23 +577,28 @@ func (c *client) setupPolling(ctx context.Context, inv *inverter) {
 			return
 		}
 		for _, s := range starts {
-			inv.client.SendCommand(modbus.BuildPacket(cfg.DataLog, cfg.Serial, 0, function, s, defaultDataLength...))
+			inv.client.SendCommand(modbus.BuildPacket(cfg.DataLog, cfg.Serial, 0, function, s, modbus.GetBytesForUInt16(inputBlockLength(s))...))
 		}
 	}
 	for {
 		select {
 		case <-short:
-			logrus.Debug("Polling for inputs 1, 2, and 4")
-			poll(0x4, 0, 40, 120)
+			logrus.Debug("Polling for inputs 1, 2, 4, and 5")
+			poll(0x4, 0, 40, 120, 160)
 		case <-long:
-			logrus.Debug("Polling for input 3")
+			logrus.Debug("Polling for input 3 (BMS)")
 			poll(0x4, 80)
+		case <-hold:
+			if inv.client.Connected() {
+				logrus.Debug("Polling holding registers")
+				c.sendHoldingPolls(inv)
+			}
 		case <-lwt.C:
 			_ = c.mqtt.SendMessage(fmt.Sprintf("%s/LWT", c.config.MQTTConfig.NameSpace), "Online", true)
 		case <-connCheck.C:
 			// Read the holding registers each time the inverter (re)connects.
 			connected := inv.client.Connected()
-			if connected && !wasConnected && cfg.PublishHoldingsOnConnect {
+			if connected && !wasConnected && (cfg.PublishHoldingsOnConnect || holdEnabled) {
 				logrus.Debugf("Requesting holding registers from %s", cfg.DataLog)
 				c.sendHoldingPolls(inv)
 			}

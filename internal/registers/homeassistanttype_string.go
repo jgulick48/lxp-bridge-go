@@ -12,11 +12,12 @@ func _() {
 	_ = x[Switch-1]
 	_ = x[Number-2]
 	_ = x[Text-3]
+	_ = x[BinarySensor-4]
 }
 
-const _HomeAssistantType_name = "SensorSwitchNumberText"
+const _HomeAssistantType_name = "SensorSwitchNumberTextbinary_sensor"
 
-var _HomeAssistantType_index = [...]uint8{0, 6, 12, 18, 22}
+var _HomeAssistantType_index = [...]uint8{0, 6, 12, 18, 22, 35}
 
 func (i HomeAssistantType) String() string {
 	if i < 0 || i >= HomeAssistantType(len(_HomeAssistantType_index)-1) {
