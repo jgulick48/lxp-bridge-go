@@ -5,8 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="1c7a4e41-3568-4445-b0a2-4031d1da725b" name="Changes" comment="Fixing healthcheck.">
-      <change beforePath="$PROJECT_DIR$/.idea/lxp-bridge-go.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/lxp-bridge-go.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/internal/modbus/client.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/modbus/client.go" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -14,7 +13,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="38" />
+    <option name="cachedIndexableFilesCount" value="39" />
     <option name="fileBasedEmbeddingIndicesEnabled" value="true" />
   </component>
   <component name="GOROOT" url="file:///usr/local/go" />
@@ -25,6 +24,65 @@
     <commands />
     <urls />
   </component>
+  <component name="NextEditCompletionFeaturesState">
+    <decayedCancelled>
+      <entry key="MS100" value="1.9937224627827135" />
+      <entry key="MS500" value="4.073426407969323" />
+      <entry key="S2" value="11.682757424702414" />
+      <entry key="S5" value="25.286254697533906" />
+      <entry key="S10" value="40.470082305770944" />
+      <entry key="S30" value="62.580582232895836" />
+      <entry key="S60" value="71.55965529103308" />
+      <entry key="M2" value="76.91752728204841" />
+      <entry key="M5" value="80.47168247019039" />
+      <entry key="M10" value="81.71918710306274" />
+      <entry key="M15" value="82.14236443418302" />
+      <entry key="M30" value="82.56928695614575" />
+      <entry key="H1" value="82.78416680441933" />
+      <entry key="H2" value="82.8919638742682" />
+      <entry key="H4" value="82.9459520100677" />
+      <entry key="D1" value="82.99098784130815" />
+      <entry key="W1" value="82.99871244682167" />
+    </decayedCancelled>
+    <decayedSelected>
+      <entry key="MS100" value="0.0" />
+      <entry key="MS500" value="0.0" />
+      <entry key="S2" value="0.0" />
+      <entry key="S5" value="0.0" />
+      <entry key="S10" value="0.0" />
+      <entry key="S30" value="0.0" />
+      <entry key="S60" value="0.0" />
+      <entry key="M2" value="0.0" />
+      <entry key="M5" value="0.0" />
+      <entry key="M10" value="0.0" />
+      <entry key="M15" value="0.0" />
+      <entry key="M30" value="0.0" />
+      <entry key="H1" value="0.0" />
+      <entry key="H2" value="0.0" />
+      <entry key="H4" value="0.0" />
+      <entry key="D1" value="0.0" />
+      <entry key="W1" value="0.0" />
+    </decayedSelected>
+    <decayedShown>
+      <entry key="MS100" value="1.4261686467842445" />
+      <entry key="MS500" value="3.7183715474298826" />
+      <entry key="S2" value="11.398683031800438" />
+      <entry key="S5" value="25.031283758780383" />
+      <entry key="S10" value="40.261143158884686" />
+      <entry key="S30" value="62.470582903022645" />
+      <entry key="S60" value="71.49639612099301" />
+      <entry key="M2" value="76.88342875805189" />
+      <entry key="M5" value="80.45738739026287" />
+      <entry key="M10" value="81.71192444935072" />
+      <entry key="M15" value="82.13749662938439" />
+      <entry key="M30" value="82.56683991993242" />
+      <entry key="H1" value="82.78293998089416" />
+      <entry key="H2" value="82.89134963338607" />
+      <entry key="H4" value="82.94564468200001" />
+      <entry key="D1" value="82.990936591097" />
+      <entry key="W1" value="82.9987051246557" />
+    </decayedShown>
+  </component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 5
 }</component>
@@ -33,28 +91,28 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "RunOnceActivity.GoLinterPluginOnboardingV2": "true",
-    "RunOnceActivity.GoLinterPluginStorageMigration": "true",
-    "RunOnceActivity.GoOptimizationToolWindowEnableInLayout.v333333": "true",
-    "RunOnceActivity.MCP Project settings loaded": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.go.analysis.ui.options.defaults": "true",
-    "RunOnceActivity.go.formatter.settings.were.checked": "true",
-    "RunOnceActivity.go.modules.go.list.on.any.changes.was.set": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "codeWithMe.voiceChat.enabledByDefault": "false",
-    "go.sdk.automatically.set": "true",
-    "last_opened_file_path": "/home/ubuntu",
-    "node.js.detected.package.eslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "ml.llm.LLMThirdPartyAiProvidersConfigurable"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;RunOnceActivity.GoLinterPluginOnboardingV2&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.GoLinterPluginStorageMigration&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.GoOptimizationToolWindowEnableInLayout.v333333&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.analysis.ui.options.defaults&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.formatter.settings.were.checked&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.go.modules.go.list.on.any.changes.was.set&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
+    &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/home/ubuntu&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;ml.llm.LLMThirdPartyAiProvidersConfigurable&quot;
   }
-}]]></component>
+}</component>
   <component name="RdControllerToolWindowsLayoutState" isNewUi="true">
     <layout>
       <window_info id="Bookmarks" side_tool="true" />
