@@ -211,6 +211,7 @@ const (
 	Smart_Load_Enable
 	Quick_Charge_Enable
 	AC_Charge_Type
+	Gen_Quick_Start
 )
 
 const (
@@ -420,6 +421,7 @@ var HoldRegisterToIDMap = map[HoldRegister]int{
 	Smart_Load_Enable:           179,
 	Quick_Charge_Enable:         233,
 	AC_Charge_Type:              120,
+	Gen_Quick_Start:             110,
 }
 
 // HoldRegisters are settings that can be changed on the inverter
@@ -855,6 +857,21 @@ var HoldRegisters = map[HoldRegister]Register{
 		HomeAssistantType: Switch,
 		Multiplier:        1,
 		BitMask:           0x1,
+		Min:               0,
+		Max:               1,
+		Writeable:         true,
+	},
+	// Gen_Quick_Start is bit 7 of register 110. The EG4 website's generator
+	// quick start sets it, the inverter closes its generator dry contact and
+	// runs the generator for about 20 minutes. Some projects call this bit
+	// the buzzer enable, which is wrong on an 18kPV.
+	Gen_Quick_Start: {
+		RegisterType:      Hold,
+		ShortName:         Gen_Quick_Start.String(),
+		Name:              "Generator Quick Start",
+		HomeAssistantType: Switch,
+		Multiplier:        1,
+		BitMask:           0x80,
 		Min:               0,
 		Max:               1,
 		Writeable:         true,

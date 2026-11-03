@@ -295,6 +295,13 @@ func TestFieldWriteReadModifyWrite(t *testing.T) {
 		sent := fakes[datalog].sent()
 		assert.Equal(t, write(21, (reg21|1<<7)&^1), sent[len(sent)-1])
 	})
+	t.Run("generator quick start matches the EG4 cloud write", func(t *testing.T) {
+		// Captured from the EG4 website: it read 110 = 1056 and wrote 1184.
+		c, fakes, _ := newTest(t, cfg, nil)
+		c.HandleCommand(topic("110", "gen_quick_start"), []byte("ON"))
+		c.ReportHolding(datalog, 110, []uint16{1056})
+		assert.Equal(t, [][]byte{read(110), write(110, 1184)}, fakes[datalog].sent())
+	})
 	t.Run("no write when already set", func(t *testing.T) {
 		c, fakes, _ := newTest(t, cfg, nil)
 		c.HandleCommand(topic("179", "gen_peak_shaving_enable"), []byte("1"))

@@ -3,13 +3,15 @@
 Registers whose meaning or scale is not confirmed. Readings are from an EG4 18kPV on 2026-11-03 while it charged from
 the generator, with no grid connected.
 
-## Generator dry contact: input 105 bit 3
+## Generator quick start: holding 110 bit 7
 
-Register 105 read 8 while the inverter was running the generator through its dry contact. Bits 0-2 are the documented
-BMS firmware update state (values 1-3), and bit 3 is the only other bit set. pylxpweb documents the dry contact as bit 4,
-which would have read 0, so it is probably off by one.
+Pressing Gen Quick Start on the EG4 website made the cloud read holding 110 (1056) and write 1184, which only sets
+bit 7. Four seconds later the dry contact bit (input 105 bit 3) went from 0 to 1, and the generator voltage rose to
+242 V. The `gen_quick_start` switch sends the same write. This also confirms that input 105 bit 3 is the generator
+dry contact, not bit 4 as pylxpweb documents.
 
-**To confirm:** `input/gen_dry_contact` should go to 0 when the inverter stops the generator.
+**To confirm:** whether the inverter clears bit 7 by itself after the 20 minute run, and whether turning the switch
+off stops the generator early.
 
 ## Load power on battery: input 170
 

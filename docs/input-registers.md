@@ -103,7 +103,7 @@ the generator with no grid connected.
 | 103 | `max_cell_temp` | Maximum Cell Temperature | 0.1 | °C | long | 300 | Signed. |
 | 104 | `min_cell_temp` | Minimum Cell Temperature | 0.1 | °C | long | 260 | Signed. |
 | 105 | `bms_fw_update_state` | BMS Firmware Update State | 1 |  | long | 8 | Bits 0-2 of register 105: 1 upgrading, 2 upgrade done, 3 upgrade failed. |
-| 105 | `gen_dry_contact` | Generator Dry Contact | 1 |  | long | 8 | Bit 3 of register 105. 1 while the inverter is running the generator through its dry contact. See [open questions](open-questions.md). |
+| 105 | `gen_dry_contact` | Generator Dry Contact | 1 |  | long | 8 | Bit 3 of register 105. 1 while the inverter is running the generator through its dry contact. Confirmed: it went from 0 to 1 four seconds after a generator quick start. |
 | 106 | `cycle_cnt_bms` | Number of Charge and Discharge Cycles | 1 |  | long | 304 |  |
 | 107 | `bat_volt_smpl_inv` | Inverter Battery Voltage Sample | 0.1 | V | long | 533 | Scale was 0.001 before this version, which published 0.5 V instead of 53 V. |
 | 108 | `t1` | 12K BT Temperature | 0.1 | °C | long | 398 |  |

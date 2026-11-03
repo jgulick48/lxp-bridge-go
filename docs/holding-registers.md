@@ -33,6 +33,7 @@ bridge reads the register, changes only those bits, and writes it back. See [pol
 | 101 |  | `charge_rate` | Battery Charge Current Limit | number | 1 | A | 0 to 250 | `set/hold/101` | 250 |  |
 | 102 |  | `discharge_rate` | Battery Discharge Current Limit | number | 1 | A | 0 to 250 | `set/hold/102` | 250 |  |
 | 105 |  | `discharge_cut_off_soc` | On-Grid Discharge Cut-Off SOC | number | 1 | % | 10 to 100 | `set/hold/105` | 10 | Lower limit of 10 follows pylxpweb. |
+| 110 | 7 | `gen_quick_start` | Generator Quick Start | switch | 1 |  | 0 / 1 | `set/hold/110/gen_quick_start` | 0 | Same write as the EG4 website's generator quick start, which runs the generator for about 20 minutes. Some projects call this bit the buzzer enable. |
 | 120 | 1-3 | `ac_charge_type` | AC Charge Type (0=Time 1=SOC/Volt 2=Time+SOC/Volt) | number | 1 |  | 0 to 2 | `set/hold/120/ac_charge_type` | 1 | Labels 0 time, 1 SOC/voltage, 2 both are not confirmed. |
 | 125 |  | `eps_discharge_cut_off_soc` | Off-Grid Discharge Cut-Off SOC | number | 1 | % | 0 to 100 | `set/hold/125` | 0 |  |
 | 158 |  | `ac_chg_start_volt` | AC Charging Start Battery Voltage | number | 0.1 | V | 38.4 to 52 | `set/hold/158` | 400 |  |
@@ -72,7 +73,7 @@ inverter screen or the EG4 app.
 | 91 | Output frequency | 60 |
 | 99 | Battery charge voltage reference | 560 |
 | 100 | Battery discharge cut-off voltage | 400 |
-| 110 | System function bits (micro-grid, buzzer, green mode and others) | 1056 |
+| 110 (other bits) | System function bits (micro-grid, green mode and others) | 1056 |
 | 144 | Float charge voltage | 540 |
 | 147-151 | Battery capacity, nominal voltage and equalization |  |
 | 176 | Max grid input power | 65535 |
