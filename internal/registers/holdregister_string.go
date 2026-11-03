@@ -24,11 +24,40 @@ func _() {
 	_ = x[Reconnect_Time-13]
 	_ = x[Start_PV_Volt-14]
 	_ = x[PV_Input_Model-15]
+	_ = x[Discharge_Power_Percent_CMD-16]
+	_ = x[AC_Charge_Power_CMD-17]
+	_ = x[AC_Charge_SOC_Limit-18]
+	_ = x[Forced_Dischg_Power_CMD-19]
+	_ = x[Forced_Dischg_SOC_Limit-20]
+	_ = x[Charge_Rate-21]
+	_ = x[Discharge_Rate-22]
+	_ = x[Discharge_Cut_Off_SOC-23]
+	_ = x[EPS_Discharge_Cut_Off_SOC-24]
+	_ = x[AC_Chg_Start_Volt-25]
+	_ = x[AC_Chg_End_Volt-26]
+	_ = x[AC_Chg_Start_SOC-27]
+	_ = x[AC_Chg_End_SOC-28]
+	_ = x[AC_Chg_Bat_Curr-29]
+	_ = x[On_Grid_EOD_Volt-30]
+	_ = x[Stop_Discharge_Volt-31]
+	_ = x[Quick_Charge_Minute-32]
+	_ = x[EPS_Enable-33]
+	_ = x[AC_Charge_Enable-34]
+	_ = x[Forced_Dischg_Enable-35]
+	_ = x[Forced_Chg_Enable-36]
+	_ = x[Feed_In_Grid_Enable-37]
+	_ = x[Grid_Peak_Shaving_Enable-38]
+	_ = x[Gen_Peak_Shaving_Enable-39]
+	_ = x[Smart_Load_Enable-40]
+	_ = x[Quick_Charge_Enable-41]
+	_ = x[AC_Charge_Type-42]
+	_ = x[Gen_Quick_Start-43]
+	_ = x[Gen_Cool_Down_Time-44]
 }
 
-const _HoldRegister_name = "Charge_Power_Percent_CMDConnect_TimeGen_Chg_Start_VoltGen_Chg_End_VoltGen_Chg_Start_SOCGen_Chg_End_SOCGen_Rate_powerGrid_Volt_Conn_LowGrid_Volt_Conn_HighGrid_Freq_Conn_LowGrid_Freq_Conn_HighLanguageMax_Gen_Chg_Bat_CurrReconnect_TimeStart_PV_VoltPV_Input_Model"
+const _HoldRegister_name = "Charge_Power_Percent_CMDConnect_TimeGen_Chg_Start_VoltGen_Chg_End_VoltGen_Chg_Start_SOCGen_Chg_End_SOCGen_Rate_powerGrid_Volt_Conn_LowGrid_Volt_Conn_HighGrid_Freq_Conn_LowGrid_Freq_Conn_HighLanguageMax_Gen_Chg_Bat_CurrReconnect_TimeStart_PV_VoltPV_Input_ModelDischarge_Power_Percent_CMDAC_Charge_Power_CMDAC_Charge_SOC_LimitForced_Dischg_Power_CMDForced_Dischg_SOC_LimitCharge_RateDischarge_RateDischarge_Cut_Off_SOCEPS_Discharge_Cut_Off_SOCAC_Chg_Start_VoltAC_Chg_End_VoltAC_Chg_Start_SOCAC_Chg_End_SOCAC_Chg_Bat_CurrOn_Grid_EOD_VoltStop_Discharge_VoltQuick_Charge_MinuteEPS_EnableAC_Charge_EnableForced_Dischg_EnableForced_Chg_EnableFeed_In_Grid_EnableGrid_Peak_Shaving_EnableGen_Peak_Shaving_EnableSmart_Load_EnableQuick_Charge_EnableAC_Charge_TypeGen_Quick_StartGen_Cool_Down_Time"
 
-var _HoldRegister_index = [...]uint16{0, 24, 36, 54, 70, 87, 102, 116, 134, 153, 171, 190, 198, 218, 232, 245, 259}
+var _HoldRegister_index = [...]uint16{0, 24, 36, 54, 70, 87, 102, 116, 134, 153, 171, 190, 198, 218, 232, 245, 259, 286, 305, 324, 347, 370, 381, 395, 416, 441, 458, 473, 489, 503, 518, 534, 553, 572, 582, 598, 618, 635, 654, 678, 701, 718, 737, 751, 766, 784}
 
 func (i HoldRegister) String() string {
 	if i < 0 || i >= HoldRegister(len(_HoldRegister_index)-1) {

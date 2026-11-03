@@ -220,130 +220,60 @@ func ParsePacket(data []byte, function byte, callback ParserCallback, dataLogger
 				if d, ok := values(17, 1); ok {
 					ReadInput4Long(d, callback, dataLogger)
 				}
-			}
-		case 3:
-			switch dataLength {
-			case 0:
-				d, ok := values(17, 1)
-				if !ok {
-					return nil, short(17)
-				}
-				ReadHold1(d, callback, dataLogger)
-				if len(data) > 130 {
-					log.Debug("Parsing Holds 1, 2, 3, and 4 Short")
-					if d, ok = values(97, 1); ok {
-						ReadHold2(d, callback, dataLogger)
-					}
-					if d, ok = values(177, 1); ok {
-						ReadHold3(d, callback, dataLogger)
-					}
-					if d, ok = values(257, 2); ok {
-						ReadHold4Short(d, callback, dataLogger)
-					}
-				}
-			case 40:
-				if d, ok := values(17, 1); ok {
-					ReadHold2(d, callback, dataLogger)
-				}
-			case 80:
-				if d, ok := values(17, 1); ok {
-					ReadHold3(d, callback, dataLogger)
-				}
-			case 120:
-				if d, ok := values(17, 2); ok {
-					ReadHold4(d, callback, dataLogger)
-				}
-			case 127:
-				if d, ok := values(17, 2); ok {
-					ReadHold4Long(d, callback, dataLogger)
-				}
-				if d, ok := values(83, 1); ok {
-					ReadHold5(d, callback, dataLogger)
+				// A 127 register read from 127 also covers block 160.
+				if d, ok := values(17+(160-127)*2, 1); ok {
+					ReadInput5(d, callback, dataLogger)
 				}
 			case 160:
 				if d, ok := values(17, 1); ok {
-					ReadHold5(d, callback, dataLogger)
+					ReadInput5(d, callback, dataLogger)
 				}
 			}
-		case 6:
-			d, ok := values(14, 1)
-			if !ok {
-				return nil, short(14)
+		case 3:
+			count := int(data[16])
+			if len(data) < 17+count {
+				count = len(data) - 17
 			}
-			ReadHoldSingle(d, callback, dataLogger)
+			if count < 2 {
+				return nil, short(19)
+			}
+			vals := make([]uint16, count/2)
+			for i := range vals {
+				vals[i] = binary.LittleEndian.Uint16(data[17+2*i:])
+			}
+			reportHolding(uint16(dataLength), vals, callback, dataLogger)
+		case 6:
+			// Echo of a single register write: [register][value].
+			if _, ok := values(14, 4); !ok {
+				return nil, short(18)
+			}
+			reportHolding(uint16(dataLength), []uint16{binary.LittleEndian.Uint16(data[16:18])}, callback, dataLogger)
 		}
 	}
 	return &Packet{}, nil
 }
 
-func ReadHoldSingle(data []byte, callback ParserCallback, dataLogger string) {
-	if len(data) < 4 {
-		log.Debugf("Not enough data got %v bytes but was expecting more than 4", len(data))
-		return
+// HoldingCallback is implemented by callbacks that want the raw holding
+// register values, for example to change single bits of a register.
+type HoldingCallback interface {
+	ReportHolding(dataLogger string, start uint16, values []uint16)
+}
+
+// reportHolding publishes every known hold register in values, which start
+// at register start.
+func reportHolding(start uint16, values []uint16, callback ParserCallback, dataLogger string) {
+	if hc, ok := callback.(HoldingCallback); ok {
+		hc.ReportHolding(dataLogger, start, values)
 	}
-	registerID := int(binary.LittleEndian.Uint16(data[0:2]))
-	holdRegister, ok := registers.HoldIDToRegisterMap[registerID]
-	if !ok {
-		return
-	}
-	var value int32
-	register, ok := registers.HoldRegisters[holdRegister]
-	if !ok {
-		return
-	}
-	if register.RegisterLength == 0 {
-		if len(data) < 6 {
-			log.Debugf("Not enough data got %v bytes but was expecting more than 6", len(data))
-			return
+	for id, register := range registers.HoldRegisters {
+		addr, ok := registers.HoldRegisterToIDMap[id]
+		if !ok || addr < int(start) || addr >= int(start)+len(values) {
+			continue
 		}
-		value = int32(binary.LittleEndian.Uint16(data[2:4]))
+		callback.ReportValue(register, int32(register.FieldValue(values[addr-int(start)])), dataLogger)
 	}
-	if register.RegisterLength == 1 {
-		if len(data) < 8 {
-			log.Debugf("Not enough data got %v bytes but was expecting more than 8", len(data))
-			return
-		}
-		value = int32(binary.LittleEndian.Uint32(data[2:6]))
-	}
-	callback.ReportValue(register, value, dataLogger)
 }
 
-func ReadHold1(data []byte, callback ParserCallback, dataLogger string) {
-	if len(data) < 80 {
-		log.Debugf("Not enough data got %v bytes but was expecting 80", len(data))
-		return
-	}
-	callback.ReportValue(registers.HoldRegisters[registers.Language], int32(data[32:33][0]), dataLogger)
-	callback.ReportValue(registers.HoldRegisters[registers.PV_Input_Model], int32(data[40:41][0]), dataLogger)
-	log.Debugf("Got Message %v", data)
-
-}
-func ReadHold2(data []byte, callback ParserCallback, dataLogger string) {
-
-}
-func ReadHold3(data []byte, callback ParserCallback, dataLogger string) {
-
-}
-func ReadHold4(data []byte, callback ParserCallback, dataLogger string) {
-	log.Debugf("State: %v", binary.LittleEndian.Uint16(data[0:2]))
-}
-func ReadHold4Short(data []byte, callback ParserCallback, dataLogger string) {
-	log.Debugf("State: %v", binary.LittleEndian.Uint16(data[0:2]))
-}
-func ReadHold4Long(data []byte, callback ParserCallback, dataLogger string) {
-	log.Debugf("State: %v", binary.LittleEndian.Uint16(data[0:2]))
-}
-func ReadHold5(data []byte, callback ParserCallback, dataLogger string) {
-	if len(data) < 80 {
-		log.Debugf("Not enough data got %v bytes but was expecting 80", len(data))
-		return
-	}
-	callback.ReportValue(registers.HoldRegisters[registers.Gen_Chg_Start_Volt], int32(binary.LittleEndian.Uint16(data[68:70])), dataLogger)
-	callback.ReportValue(registers.HoldRegisters[registers.Gen_Chg_End_Volt], int32(binary.LittleEndian.Uint16(data[70:72])), dataLogger)
-	callback.ReportValue(registers.HoldRegisters[registers.Gen_Chg_Start_SOC], int32(binary.LittleEndian.Uint16(data[72:74])), dataLogger)
-	callback.ReportValue(registers.HoldRegisters[registers.Gen_Chg_End_SOC], int32(binary.LittleEndian.Uint16(data[74:76])), dataLogger)
-	callback.ReportValue(registers.HoldRegisters[registers.Max_Gen_Chg_Bat_Curr], int32(binary.LittleEndian.Uint16(data[76:78])), dataLogger)
-}
 func ReadInput1(data []byte, callback ParserCallback, dataLogger string) {
 	if len(data) < 80 {
 		log.Debugf("Not enough data got %v bytes but was expecting 80", len(data))
@@ -422,6 +352,9 @@ func ReadInput2(data []byte, callback ParserCallback, dataLogger string) {
 	callback.ReportValue(registers.InputRegisters[registers.T_RAD_2], int32(binary.LittleEndian.Uint16(data[52:54])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.T_BAT], int32(binary.LittleEndian.Uint16(data[54:56])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.Runtime], int32(binary.LittleEndian.Uint32(data[58:62])), dataLogger)
+	callback.ReportValue(registers.InputRegisters[registers.I_PV_1], int32(binary.LittleEndian.Uint16(data[64:66])), dataLogger)
+	callback.ReportValue(registers.InputRegisters[registers.I_PV_2], int32(binary.LittleEndian.Uint16(data[66:68])), dataLogger)
+	callback.ReportValue(registers.InputRegisters[registers.I_PV_3], int32(binary.LittleEndian.Uint16(data[68:70])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.AC_INPUT_TYPE], int32(binary.LittleEndian.Uint16(data[74:76])), dataLogger)
 }
 func ReadInput3(data []byte, callback ParserCallback, dataLogger string) {
@@ -453,7 +386,12 @@ func ReadInput3(data []byte, callback ParserCallback, dataLogger string) {
 	callback.ReportValue(registers.InputRegisters[registers.MIN_CELL_VOLT], int32(binary.LittleEndian.Uint16(data[44:46])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.MAX_CELL_TEMP], int32(binary.LittleEndian.Uint16(data[46:48])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.MIN_CELL_TEMP], int32(binary.LittleEndian.Uint16(data[48:50])), dataLogger)
-	callback.ReportValue(registers.InputRegisters[registers.BMS_FW_UPDATE_STATE], int32(binary.LittleEndian.Uint16(data[50:52])), dataLogger)
+	// Register 105: bits 0-1 BMS firmware update state, bit 2 generator
+	// cool-down, bit 3 generator dry contact.
+	reg105 := binary.LittleEndian.Uint16(data[50:52])
+	callback.ReportValue(registers.InputRegisters[registers.BMS_FW_UPDATE_STATE], int32(reg105&0x3), dataLogger)
+	callback.ReportValue(registers.InputRegisters[registers.GEN_COOL_DOWN], int32(reg105>>2&1), dataLogger)
+	callback.ReportValue(registers.InputRegisters[registers.GEN_DRY_CONTACT], int32(reg105>>3&1), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.CYCLE_CNT_BMS], int32(binary.LittleEndian.Uint16(data[52:54])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.BAT_VOLT_SMPL_INV], int32(binary.LittleEndian.Uint16(data[54:56])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.T1], int32(binary.LittleEndian.Uint16(data[56:58])), dataLogger)
@@ -461,6 +399,34 @@ func ReadInput3(data []byte, callback ParserCallback, dataLogger string) {
 	callback.ReportValue(registers.InputRegisters[registers.T3], int32(binary.LittleEndian.Uint16(data[60:62])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.T4], int32(binary.LittleEndian.Uint16(data[62:64])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.T5], int32(binary.LittleEndian.Uint16(data[64:66])), dataLogger)
+	callback.ReportValue(registers.InputRegisters[registers.CONSUMPTION_POWER], int32(binary.LittleEndian.Uint16(data[68:70])), dataLogger)
+}
+
+// ReadInput5 decodes input registers starting at 160: load power and energy
+// (170-173) and, when the read reaches register 204, the per-leg values
+// (193-204).
+func ReadInput5(data []byte, callback ParserCallback, dataLogger string) {
+	if len(data) < 28 { // through register 173
+		log.Debugf("Not enough data got %v bytes but was expecting 28", len(data))
+		return
+	}
+	callback.ReportValue(registers.InputRegisters[registers.P_LOAD], uint16ToInt32(binary.LittleEndian.Uint16(data[20:22])), dataLogger)
+	callback.ReportValue(registers.InputRegisters[registers.E_LOAD_DAY], int32(binary.LittleEndian.Uint16(data[22:24])), dataLogger)
+	callback.ReportValue(registers.InputRegisters[registers.E_LOAD_ALL], int32(binary.LittleEndian.Uint32(data[24:28])), dataLogger)
+	if len(data) >= (204-160+1)*2 {
+		callback.ReportValue(registers.InputRegisters[registers.V_GRID_L1], int32(binary.LittleEndian.Uint16(data[66:68])), dataLogger)
+		callback.ReportValue(registers.InputRegisters[registers.V_GRID_L2], int32(binary.LittleEndian.Uint16(data[68:70])), dataLogger)
+		callback.ReportValue(registers.InputRegisters[registers.V_GEN_L1], int32(binary.LittleEndian.Uint16(data[70:72])), dataLogger)
+		callback.ReportValue(registers.InputRegisters[registers.V_GEN_L2], int32(binary.LittleEndian.Uint16(data[72:74])), dataLogger)
+		callback.ReportValue(registers.InputRegisters[registers.P_INV_L1], int32(binary.LittleEndian.Uint16(data[74:76])), dataLogger)
+		callback.ReportValue(registers.InputRegisters[registers.P_INV_L2], int32(binary.LittleEndian.Uint16(data[76:78])), dataLogger)
+		callback.ReportValue(registers.InputRegisters[registers.P_REC_L1], int32(binary.LittleEndian.Uint16(data[78:80])), dataLogger)
+		callback.ReportValue(registers.InputRegisters[registers.P_REC_L2], int32(binary.LittleEndian.Uint16(data[80:82])), dataLogger)
+		callback.ReportValue(registers.InputRegisters[registers.P_TO_GRID_L1], int32(binary.LittleEndian.Uint16(data[82:84])), dataLogger)
+		callback.ReportValue(registers.InputRegisters[registers.P_TO_GRID_L2], int32(binary.LittleEndian.Uint16(data[84:86])), dataLogger)
+		callback.ReportValue(registers.InputRegisters[registers.P_TO_USER_L1], int32(binary.LittleEndian.Uint16(data[86:88])), dataLogger)
+		callback.ReportValue(registers.InputRegisters[registers.P_TO_USER_L2], int32(binary.LittleEndian.Uint16(data[88:90])), dataLogger)
+	}
 }
 func ReadInput4Short(data []byte, callback ParserCallback, dataLogger string) {
 	if len(data) < 14 {
