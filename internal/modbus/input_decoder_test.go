@@ -176,19 +176,33 @@ func TestDecodeWriteEcho(t *testing.T) {
 	assert.Equal(t, uint16(21), rec.start)
 }
 
-func TestDecodeGenDryContact(t *testing.T) {
+func TestDecodeRegister105(t *testing.T) {
 	// Captured while the inverter was running the generator: register 105 = 8.
 	rec := decodeHex(t, input80Frame)
 	assert.Equal(t, int32(1), rec.values["GEN_DRY_CONTACT"])
+	assert.Equal(t, int32(0), rec.values["GEN_COOL_DOWN"])
 	assert.Equal(t, int32(0), rec.values["BMS_FW_UPDATE_STATE"])
 
-	vals := make([]uint16, 40)
-	vals[105-80] = 2 // firmware update successful, contact open
-	rec = newRecorder()
-	_, err := Decode(inputFrame(80, vals), rec)
-	require.NoError(t, err)
-	assert.Equal(t, int32(0), rec.values["GEN_DRY_CONTACT"])
-	assert.Equal(t, int32(2), rec.values["BMS_FW_UPDATE_STATE"])
+	// Values seen during a generator quick start and stop.
+	for _, tc := range []struct {
+		raw                     uint16
+		contact, coolDown, fwUp int32
+	}{
+		{0, 0, 0, 0},
+		{8, 1, 0, 0},  // running
+		{12, 1, 1, 0}, // stopped, cooling down with the contact still closed
+		{2, 0, 0, 2},  // BMS firmware update done
+		{3, 0, 0, 3},  // BMS firmware update failed
+	} {
+		vals := make([]uint16, 40)
+		vals[105-80] = tc.raw
+		rec := newRecorder()
+		_, err := Decode(inputFrame(80, vals), rec)
+		require.NoError(t, err)
+		assert.Equal(t, tc.contact, rec.values["GEN_DRY_CONTACT"], "contact for %d", tc.raw)
+		assert.Equal(t, tc.coolDown, rec.values["GEN_COOL_DOWN"], "cool down for %d", tc.raw)
+		assert.Equal(t, tc.fwUp, rec.values["BMS_FW_UPDATE_STATE"], "fw state for %d", tc.raw)
+	}
 }
 
 func TestBatteryVoltageSampleScale(t *testing.T) {

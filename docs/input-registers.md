@@ -77,7 +77,7 @@ the generator with no grid connected.
 | 72 | `i_pv_1` | PV Current (String 1) | 0.01 | A | short | 0 |  |
 | 73 | `i_pv_2` | PV Current (String 2) | 0.01 | A | short | 0 |  |
 | 74 | `i_pv_3` | PV Current (String 3) | 0.01 | A | short | 0 |  |
-| 77 | `ac_input_type` | AC Input Type (0 = Grid, 1 = Generator) | 1 |  | short | 225 | Bitfield. Bit 0 is 1 when the AC input is the generator. Bits 5-7 are set on generator (225) but undocumented. |
+| 77 | `ac_input_type` | AC Input Type (0 = Grid, 1 = Generator) | 1 |  | short | 225 | Bitfield. Bit 0 is 1 when the inverter is connected to the generator: it was set about 2 minutes after a generator start, once the generator had warmed up. Bits 5-7 are undocumented (224 with the generator off). |
 | 81 | `max_chg_curr` | Maximum Charge Current | 0.1 | A | long | 4500 |  |
 | 82 | `max_dischg_curr` | Maximum Discharge Current | 0.1 | A | long | 9000 |  |
 | 83 | `chrg_volt_ref` | BMS Recommended Charging Voltage | 0.1 | V | long | 560 |  |
@@ -102,8 +102,9 @@ the generator with no grid connected.
 | 102 | `min_cell_volt` | Minimum Cell Voltage | 0.001 | V | long | 3343 |  |
 | 103 | `max_cell_temp` | Maximum Cell Temperature | 0.1 | °C | long | 300 | Signed. |
 | 104 | `min_cell_temp` | Minimum Cell Temperature | 0.1 | °C | long | 260 | Signed. |
-| 105 | `bms_fw_update_state` | BMS Firmware Update State | 1 |  | long | 8 | Bits 0-2 of register 105: 1 upgrading, 2 upgrade done, 3 upgrade failed. |
-| 105 | `gen_dry_contact` | Generator Dry Contact | 1 |  | long | 8 | Bit 3 of register 105. 1 while the inverter is running the generator through its dry contact. Confirmed: it went from 0 to 1 four seconds after a generator quick start. |
+| 105 | `bms_fw_update_state` | BMS Firmware Update State | 1 |  | long | 8 | Bits 0-1 of register 105: 1 upgrading, 2 upgrade done, 3 upgrade failed. Bits 2 and 3 are the generator state below. |
+| 105 | `gen_cool_down` | Generator Cooling Down | 1 |  | long | 0 | Bit 2 of register 105. 1 after a generator stop while the dry contact is held closed for the cool-down time (holding 237, 0.1 min). Seen for about 2 minutes after a stop. |
+| 105 | `gen_dry_contact` | Generator Dry Contact | 1 |  | long | 8 | Bit 3 of register 105. 1 while the inverter is running the generator through its dry contact. Confirmed: it went from 0 to 1 four seconds after a generator quick start, and back to 0 at the end of the cool-down after a stop. |
 | 106 | `cycle_cnt_bms` | Number of Charge and Discharge Cycles | 1 |  | long | 304 |  |
 | 107 | `bat_volt_smpl_inv` | Inverter Battery Voltage Sample | 0.1 | V | long | 533 | Scale was 0.001 before this version, which published 0.5 V instead of 53 V. |
 | 108 | `t1` | 12K BT Temperature | 0.1 | °C | long | 398 |  |

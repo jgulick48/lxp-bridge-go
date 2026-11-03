@@ -148,6 +148,7 @@ const (
 	I_PV_2
 	I_PV_3
 	GEN_DRY_CONTACT
+	GEN_COOL_DOWN
 	V_GRID_L1
 	V_GRID_L2
 	V_GEN_L1
@@ -1827,6 +1828,16 @@ var InputRegisters = map[InputRegister]Register{
 		Name:           "BMS Firmware Update State",
 		EntityCategory: "diagnostic",
 		Multiplier:     1,
+	},
+	// GEN_COOL_DOWN is bit 2 of input 105: 1 after a generator stop while the
+	// inverter keeps the dry contact closed for the cool-down time.
+	GEN_COOL_DOWN: {
+		RegisterType:      Input,
+		ShortName:         GEN_COOL_DOWN.String(),
+		Name:              "Generator Cooling Down",
+		HomeAssistantType: BinarySensor,
+		DeviceClass:       "running",
+		Multiplier:        1,
 	},
 	// GEN_DRY_CONTACT is bit 3 of input 105: 1 while the inverter's generator
 	// start dry contact is closed.

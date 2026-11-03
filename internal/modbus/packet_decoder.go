@@ -386,10 +386,12 @@ func ReadInput3(data []byte, callback ParserCallback, dataLogger string) {
 	callback.ReportValue(registers.InputRegisters[registers.MIN_CELL_VOLT], int32(binary.LittleEndian.Uint16(data[44:46])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.MAX_CELL_TEMP], int32(binary.LittleEndian.Uint16(data[46:48])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.MIN_CELL_TEMP], int32(binary.LittleEndian.Uint16(data[48:50])), dataLogger)
-	// Register 105: bits 0-2 BMS firmware update state, bit 3 generator dry contact.
-	fwState := binary.LittleEndian.Uint16(data[50:52])
-	callback.ReportValue(registers.InputRegisters[registers.BMS_FW_UPDATE_STATE], int32(fwState&0x7), dataLogger)
-	callback.ReportValue(registers.InputRegisters[registers.GEN_DRY_CONTACT], int32(fwState>>3&1), dataLogger)
+	// Register 105: bits 0-1 BMS firmware update state, bit 2 generator
+	// cool-down, bit 3 generator dry contact.
+	reg105 := binary.LittleEndian.Uint16(data[50:52])
+	callback.ReportValue(registers.InputRegisters[registers.BMS_FW_UPDATE_STATE], int32(reg105&0x3), dataLogger)
+	callback.ReportValue(registers.InputRegisters[registers.GEN_COOL_DOWN], int32(reg105>>2&1), dataLogger)
+	callback.ReportValue(registers.InputRegisters[registers.GEN_DRY_CONTACT], int32(reg105>>3&1), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.CYCLE_CNT_BMS], int32(binary.LittleEndian.Uint16(data[52:54])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.BAT_VOLT_SMPL_INV], int32(binary.LittleEndian.Uint16(data[54:56])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.T1], int32(binary.LittleEndian.Uint16(data[56:58])), dataLogger)

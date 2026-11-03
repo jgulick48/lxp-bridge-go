@@ -3,15 +3,27 @@
 Registers whose meaning or scale is not confirmed. Readings are from an EG4 18kPV on 2026-11-03 while it charged from
 the generator, with no grid connected.
 
-## Generator quick start: holding 110 bit 7
+## Generator quick start: holding 110 bit 7 (confirmed)
 
-Pressing Gen Quick Start on the EG4 website made the cloud read holding 110 (1056) and write 1184, which only sets
-bit 7. Four seconds later the dry contact bit (input 105 bit 3) went from 0 to 1, and the generator voltage rose to
-242 V. The `gen_quick_start` switch sends the same write. This also confirms that input 105 bit 3 is the generator
-dry contact, not bit 4 as pylxpweb documents.
+Captured from the EG4 website on 2026-11-03. Each time, the cloud read holding 110 first and then wrote it back with
+only bit 7 changed, which is what the `gen_quick_start` switch does.
 
-**To confirm:** whether the inverter clears bit 7 by itself after the 20 minute run, and whether turning the switch
-off stops the generator early.
+| Time (UTC) | Event |
+|---|---|
+| 03:19:38 | Gen Quick Start: holding 110 written 1056 → 1184 (bit 7 set) |
+| 03:19:42 | Input 105: 0 → 8, dry contact closed (bit 3) |
+| 03:19:47 | Generator voltage (input 121) rising, 242 V ten seconds later |
+| 03:21:56 | Input 77: 224 → 225, inverter connected to the generator (bit 0) |
+| 03:22:11 | Stop: holding 110 written 1184 → 1056 (bit 7 cleared) |
+| 03:22:15 | Input 105: 8 → 12, cooling down (bit 2) with the contact still closed |
+| 03:24:19 | Input 105: 12 → 0, contact open |
+
+This confirms that input 105 bit 3 is the generator dry contact (not bit 4 as pylxpweb documents) and that bit 2 is the
+cool-down. The generator voltage was still 242 V after the contact opened, so the generator has its own shutdown delay.
+
+**Still to confirm:** whether the inverter clears holding 110 bit 7 by itself after an uninterrupted 20 minute run, and
+how the cool-down length relates to holding 237 (30, which is 3.0 minutes in 0.1 minute units; about 2 minutes was
+observed, but block 80 is only read every `long_read`).
 
 ## Load power on battery: input 170
 

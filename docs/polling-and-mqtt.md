@@ -45,7 +45,7 @@ With `mqtt.homeassistant.enabled: true`, every register is announced on each MQT
 | Component | Used for |
 |---|---|
 | `sensor` | Input registers and read-only settings |
-| `binary_sensor` | Generator dry contact |
+| `binary_sensor` | Generator dry contact and generator cool-down |
 | `number` | Writable whole-register settings, with min, max and step in display units |
 | `switch` | Writable single-bit settings, with payload and state `1`/`0` |
 
