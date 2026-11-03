@@ -1,98 +1,120 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
-	"github.com/jgulick48/lxp-bridge-go/internal/coordinator"
-	"github.com/jgulick48/lxp-bridge-go/internal/models"
-	"github.com/mitchellh/panicwrap"
-	"github.com/sirupsen/logrus"
-	log "github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v3"
-	"io/ioutil"
+	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
+
+	"github.com/jgulick48/lxp-bridge-go/internal/coordinator"
+	"github.com/jgulick48/lxp-bridge-go/internal/models"
+	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v3"
 )
 
-var configLocation = flag.String("configFile", "./config.yml", "Location for the configuration file.")
+// Set via -ldflags "-X main.version=... -X main.commit=...".
+var (
+	version = "dev"
+	commit  = "none"
+)
+
+var (
+	configLocation = flag.String("configFile", "./config.yml", "Location for the configuration file.")
+	logLevelFlag   = flag.String("logLevel", "", "Log level (debug, info, warn, error). Overrides the loglevel config key.")
+	healthAddr     = flag.String("healthAddr", "0.0.0.0:8080", "Listen address for the /health endpoint.")
+)
 
 func main() {
-	//LogListener()
-	startService()
-	exitStatus, err := panicwrap.BasicWrap(panicHandler)
-	if err != nil {
-		// Something went wrong setting up the panic wrapper. Unlikely,
-		// but possible.
-		panic(err)
-	}
-
-	// If exitStatus >= 0, then we're the parent process and the panicwrap
-	// re-executed ourselves and completed. Just exit with the proper status.
-	if exitStatus >= 0 {
-		os.Exit(exitStatus)
-	}
-}
-
-func panicHandler(output string) {
-	// output contains the full output (including stack traces) of the
-	// panic. Put it in a file or something.
-	log.Printf("The child panicked:\n\n%s\n", output)
-	os.Exit(1)
-}
-
-func startService() {
-	path, err := os.Getwd()
-	if err != nil {
-		log.Println(err)
-	}
-	logger := logrus.Logger{}
-	log.Print(path)
 	flag.Parse()
-	logrus.Infof("Got config location of %s", *configLocation)
-	config := LoadClientConfig(*configLocation)
-	done := make(chan bool)
-	OnTermination(func() {
-		done <- true
-	})
-	server := coordinator.NewClient(config, &logger)
-	for <-done {
-		server.Done()
-		return
-	}
+	os.Exit(run())
 }
 
-// TermFunc defines the function which is executed on termination.
-type TermFunc func()
+func run() int {
+	config, err := LoadClientConfig(*configLocation)
+	if err != nil {
+		logrus.Errorf("Unable to load config: %s", err)
+		return 1
+	}
+	level := config.LogLevel
+	if *logLevelFlag != "" {
+		level = *logLevelFlag
+	}
+	if err := setLogLevel(level); err != nil {
+		logrus.Warnf("%s; using info", err)
+	}
+	logrus.Infof("lxp-bridge-go version=%s commit=%s config=%s", version, commit, *configLocation)
 
-func OnTermination(fn TermFunc) {
-	c := make(chan os.Signal)
-	signal.Notify(c, os.Interrupt)
-	signal.Notify(c, os.Kill)
-	signal.Notify(c, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
+	coord, err := coordinator.New(config)
+	if err != nil {
+		logrus.Errorf("Unable to start: %s", err)
+		return 1
+	}
+	coord.Start(ctx)
+
+	mux := http.NewServeMux()
+	mux.Handle("/health", coord.HealthHandler())
+	server := &http.Server{Addr: *healthAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	serverErr := make(chan error, 1)
 	go func() {
-		select {
-		case <-c:
-			if fn != nil {
-				fn()
-			}
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
 		}
 	}()
+
+	exit := 0
+	select {
+	case <-ctx.Done():
+		logrus.Info("Shutdown signal received")
+	case err := <-serverErr:
+		logrus.Errorf("Health server failed: %s", err)
+		exit = 1
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		logrus.Warnf("Error shutting down health server: %s", err)
+	}
+	coord.Close()
+	logrus.Info("Shutdown complete")
+	return exit
 }
 
-func LoadClientConfig(filename string) models.Config {
+func setLogLevel(level string) error {
+	if level == "" {
+		level = "info"
+	}
+	switch strings.ToLower(level) {
+	case "debug", "info", "warn", "error":
+	default:
+		logrus.SetLevel(logrus.InfoLevel)
+		return fmt.Errorf("invalid log level %q (expected debug, info, warn or error)", level)
+	}
+	parsed, _ := logrus.ParseLevel(strings.ToLower(level))
+	logrus.SetLevel(parsed)
+	return nil
+}
+
+func LoadClientConfig(filename string) (models.Config, error) {
 	if filename == "" {
 		filename = "./config.yml"
 	}
-	configFile, err := ioutil.ReadFile(filename)
-	if err != nil {
-		logrus.Fatalf("No config file found %s.", filename)
-	}
 	var config models.Config
-	err = yaml.Unmarshal(configFile, &config)
+	configFile, err := os.ReadFile(filename)
 	if err != nil {
-		log.Printf("Invliad config file provided")
-		panic(err)
+		return config, fmt.Errorf("reading config file %s: %w", filename, err)
 	}
-	return config
+	if err := yaml.Unmarshal(configFile, &config); err != nil {
+		return config, fmt.Errorf("invalid config file %s: %w", filename, err)
+	}
+	return config, nil
 }

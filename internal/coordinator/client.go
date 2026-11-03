@@ -1,56 +1,110 @@
 package coordinator
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/DataDog/datadog-go/statsd"
+	"math"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/jgulick48/lxp-bridge-go/internal/metrics"
 	"github.com/jgulick48/lxp-bridge-go/internal/modbus"
 	"github.com/jgulick48/lxp-bridge-go/internal/models"
 	"github.com/jgulick48/lxp-bridge-go/internal/mqtt"
 	"github.com/jgulick48/lxp-bridge-go/internal/registers"
 	"github.com/sirupsen/logrus"
-	"log"
-	"strconv"
-	"strings"
-	"time"
 )
 
+const (
+	defaultHealthCheckDuration = 5 * time.Minute
+	healthMetricsInterval      = 10 * time.Second
+	maxRawRegisterValue        = 65535
+)
+
+// Client ties the inverter connections, MQTT and metrics together.
 type Client interface {
-	Done()
+	// Start begins polling and metrics reporting; it returns immediately.
+	Start(ctx context.Context)
+	// Close stops everything: inverter clients, MQTT and statsd.
+	Close()
+	// Health reports an HTTP status and short text body.
+	Health() (int, string)
+	// HealthHandler serves the liveness probe.
+	HealthHandler() http.Handler
+}
+
+type inverter struct {
+	client modbus.Client
+	config models.LXPConfig
 }
 
 type client struct {
-	config models.Config
-	modbus.ParserCallback
-	mqttClient    mqtt.Client
-	modbusClients map[string]modClient
-}
-type modClient struct {
-	modbusClient modbus.Client
-	config       models.LXPConfig
-	done         chan bool
+	config  models.Config
+	mqtt    mqtt.Client
+	metrics metrics.Sink
+	now     func() time.Time
+	started time.Time
+
+	// inverters is populated before Start and read-only afterwards.
+	inverters map[string]*inverter
+	order     []string
+
+	wg        sync.WaitGroup
+	closeOnce sync.Once
+	cancel    context.CancelFunc
 }
 
-func NewClient(config models.Config, logger *logrus.Logger) Client {
-	c := client{
-		config: config,
+// deps are the injectable collaborators; tests replace them with fakes.
+type deps struct {
+	mqtt      mqtt.Client
+	metrics   metrics.Sink
+	now       func() time.Time
+	newModbus func(cfg models.LXPConfig, cb modbus.ParserCallback, obs modbus.Observer) (modbus.Client, error)
+}
+
+// New builds the coordinator with real MQTT, statsd and inverter clients.
+func New(config models.Config) (Client, error) {
+	sink, err := metrics.New(config.StatsDConfig.StatsServer)
+	if err != nil {
+		logrus.Errorf("Error creating stats client, metrics disabled: %s", err)
+		sink = metrics.Nop{}
 	}
-	c.mqttClient = mqtt.NewClient(config.MQTTConfig, false, &c)
-	if config.StatsDConfig.StatsServer != "" {
-		var err error
-		metrics.Metrics, err = statsd.New(config.StatsDConfig.StatsServer)
-		if err != nil {
-			log.Printf("Error creating stats client %s", err.Error())
-		} else {
-			metrics.StatsEnabled = true
-		}
+	return build(config, deps{
+		metrics: sink,
+		now:     time.Now,
+		newModbus: func(cfg models.LXPConfig, cb modbus.ParserCallback, obs modbus.Observer) (modbus.Client, error) {
+			return modbus.NewClient(cfg, cb, obs)
+		},
+	})
+}
+
+func build(config models.Config, d deps) (*client, error) {
+	c := &client{
+		config:    config,
+		metrics:   d.metrics,
+		now:       d.now,
+		mqtt:      d.mqtt,
+		inverters: make(map[string]*inverter),
 	}
-	go c.mqttClient.Connect()
-	time.Sleep(5 * time.Second)
-	c.modbusClients = make(map[string]modClient)
-	subTopics := make([]string, 0, len(config.Inverters))
+	if c.now == nil {
+		c.now = time.Now
+	}
+	if c.metrics == nil {
+		c.metrics = metrics.Nop{}
+	}
+	c.started = c.now()
+	if c.mqtt == nil {
+		c.mqtt = mqtt.NewClient(config.MQTTConfig, false, c, c.onMQTTConnect)
+	}
 	for _, modConfig := range config.Inverters {
+		if !modConfig.Enabled {
+			logrus.Warnf("Inverter %s is not enabled in config (enabled: false or missing), skipping", modConfig.DataLog)
+			continue
+		}
 		if modConfig.ReadTimeout == 0 {
 			modConfig.ReadTimeout = 300 * time.Second
 		}
@@ -60,30 +114,159 @@ func NewClient(config models.Config, logger *logrus.Logger) Client {
 		if modConfig.ShortRead == 0 {
 			modConfig.ShortRead = 10 * time.Second
 		}
-		c.modbusClients[modConfig.DataLog] = modClient{
-			modbusClient: modbus.NewClient(modConfig, logger, &c),
-			done:         make(chan bool),
-			config:       modConfig,
+		if modConfig.HealthCheckDuration == 0 {
+			modConfig.HealthCheckDuration = defaultHealthCheckDuration
 		}
-		c.modbusClients[modConfig.DataLog].modbusClient.Connect()
-		go c.setupPolling(modConfig)
-		if config.MQTTConfig.HomeAssistant.Enabled {
-			c.reportHomeAssistant(modConfig)
+		if _, dup := c.inverters[modConfig.DataLog]; dup {
+			return nil, fmt.Errorf("duplicate datalog %q in config", modConfig.DataLog)
 		}
-		subTopics = append(subTopics, fmt.Sprintf("%s/cmd/%s/set/#", config.MQTTConfig.NameSpace, modConfig.DataLog))
+		mc, err := d.newModbus(modConfig, c, &observer{c: c, tags: []string{metrics.FormatTag("deploymentID", modConfig.DataLog)}})
+		if err != nil {
+			return nil, fmt.Errorf("inverter %s: %w", modConfig.DataLog, err)
+		}
+		c.inverters[modConfig.DataLog] = &inverter{client: mc, config: modConfig}
+		c.order = append(c.order, modConfig.DataLog)
 	}
-	c.mqttClient.SubMultiple(subTopics)
-	return &c
+	return c, nil
+}
+
+func (c *client) Start(ctx context.Context) {
+	ctx, c.cancel = context.WithCancel(ctx)
+	subTopics := make([]string, 0, len(c.order))
+	for _, id := range c.order {
+		inv := c.inverters[id]
+		inv.client.Connect()
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+			c.setupPolling(ctx, inv)
+		}()
+		subTopics = append(subTopics, fmt.Sprintf("%s/cmd/%s/set/#", c.config.MQTTConfig.NameSpace, inv.config.DataLog))
+	}
+	c.mqtt.SubMultiple(subTopics)
+	c.mqtt.Connect()
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.reportHealthMetrics(ctx)
+	}()
+}
+
+func (c *client) Close() {
+	c.closeOnce.Do(func() {
+		if c.cancel != nil {
+			c.cancel()
+		}
+		c.wg.Wait()
+		for _, id := range c.order {
+			c.inverters[id].client.Close()
+		}
+		c.mqtt.Close()
+		_ = c.metrics.Close()
+	})
+}
+
+// onMQTTConnect republishes the Home Assistant discovery configs.
+func (c *client) onMQTTConnect() {
+	if !c.config.MQTTConfig.HomeAssistant.Enabled {
+		return
+	}
+	for _, id := range c.order {
+		c.reportHomeAssistant(c.inverters[id].config)
+	}
+}
+
+func (c *client) HealthHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		status, body := c.Health()
+		logrus.Debugf("Got Healthcheck request sending status %v", status)
+		if status != http.StatusNoContent {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(status)
+			_, _ = fmt.Fprintln(w, body)
+			return
+		}
+		w.WriteHeader(status)
+	})
+}
+
+// lastActivity is the last valid frame, or process start if none yet.
+func (c *client) lastActivity(inv *inverter) time.Time {
+	last := inv.client.LastFrame()
+	if last.Before(c.started) {
+		return c.started
+	}
+	return last
+}
+
+// Health is healthy iff every enabled inverter has produced a valid frame
+// within its health check duration (5m by default). MQTT is not considered.
+func (c *client) Health() (int, string) {
+	now := c.now()
+	for _, id := range c.order {
+		inv := c.inverters[id]
+		age := now.Sub(c.lastActivity(inv))
+		if age > inv.config.HealthCheckDuration {
+			return http.StatusServiceUnavailable, fmt.Sprintf("inverter %s: no valid frame for %s (limit %s)",
+				id, age.Round(time.Second), inv.config.HealthCheckDuration)
+		}
+	}
+	return http.StatusNoContent, ""
+}
+
+func (c *client) metricName(suffix string) string {
+	return fmt.Sprintf("%s_%s", c.config.MQTTConfig.NameSpace, suffix)
+}
+
+func (c *client) reportHealthMetrics(ctx context.Context) {
+	ticker := time.NewTicker(healthMetricsInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			c.emitHealthGauges()
+		}
+	}
+}
+
+func (c *client) emitHealthGauges() {
+	now := c.now()
+	for _, id := range c.order {
+		inv := c.inverters[id]
+		tags := []string{metrics.FormatTag("deploymentID", id)}
+		connected := 0.0
+		if inv.client.Connected() {
+			connected = 1
+		}
+		metrics.Gauge(c.metrics, c.metricName("bridge_connected"), tags, connected)
+		metrics.Gauge(c.metrics, c.metricName("bridge_last_frame_age_s"), tags, now.Sub(c.lastActivity(inv)).Seconds())
+	}
+}
+
+// observer reports modbus client events as metrics.
+type observer struct {
+	c    *client
+	tags []string
+}
+
+func (o *observer) Reconnect() {
+	metrics.Count(o.c.metrics, o.c.metricName("bridge_reconnects"), o.tags, 1)
+}
+func (o *observer) CommandDropped() {
+	metrics.Count(o.c.metrics, o.c.metricName("bridge_commands_dropped"), o.tags, 1)
+}
+func (o *observer) Frame(result string) {
+	metrics.Count(o.c.metrics, o.c.metricName("bridge_frames"), append(append([]string(nil), o.tags...), metrics.FormatTag("result", result)), 1)
 }
 
 func (c *client) ReportValue(register registers.Register, value int32, dataLogger string) {
 	topic := fmt.Sprintf("%s/%s/%s/%s", c.config.MQTTConfig.NameSpace, dataLogger, strings.ToLower(register.RegisterType.String()), strings.ToLower(register.ShortName))
 	floatVal := float32(value)
 	floatVal = floatVal * register.Multiplier
-	_ = c.mqttClient.SendMessage(topic, fmt.Sprintf("%v", floatVal), false)
-	if metrics.StatsEnabled {
-		metrics.SendGaugeMetric(fmt.Sprintf("%s_%s", c.config.MQTTConfig.NameSpace, strings.ToLower(register.ShortName)), []string{metrics.FormatTag("deploymentID", dataLogger)}, float64(floatVal))
-	}
+	_ = c.mqtt.SendMessage(topic, fmt.Sprintf("%v", floatVal), true)
+	metrics.Gauge(c.metrics, fmt.Sprintf("%s_%s", c.config.MQTTConfig.NameSpace, strings.ToLower(register.ShortName)), []string{metrics.FormatTag("deploymentID", dataLogger)}, float64(floatVal))
 }
 
 func (c *client) ReportPowerOpenEVSE(soc, batteryPower int32) {
@@ -97,56 +280,115 @@ func (c *client) ReportPowerOpenEVSE(soc, batteryPower int32) {
 	if soc >= c.config.OpenEVSE.SOCChargeMax {
 		exportPower = c.config.OpenEVSE.ChargeMaxValue
 	}
-	_ = c.mqttClient.SendMessage(c.config.OpenEVSE.Topic, fmt.Sprintf("%v", exportPower), true)
+	_ = c.mqtt.SendMessage(c.config.OpenEVSE.Topic, fmt.Sprintf("%v", exportPower), true)
 }
 
+// controllable reports whether a hold register is exposed to Home Assistant as
+// a settable entity (Writeable with a command topic, and not a sensor/text).
+func controllable(r registers.Register) bool {
+	if !r.Writeable {
+		return false
+	}
+	switch r.HomeAssistantType {
+	case registers.Number, registers.Switch:
+		return true
+	}
+	return false
+}
+
+// registerRange returns the allowed raw value range for a register.
+func registerRange(r registers.Register) (min, max int) {
+	if r.Min == 0 && r.Max == 0 {
+		return 0, maxRawRegisterValue
+	}
+	return r.Min, r.Max
+}
+
+// HandleCommand processes <ns>/cmd/<datalog>/set/hold/<register> messages.
+// Only single-register, Home Assistant controllable hold registers are
+// written, and only with an in-range integer value.
 func (c *client) HandleCommand(topic string, message []byte) {
 	segments := strings.Split(topic, "/")
 	if len(segments) < 6 {
 		return
 	}
-	if segments[0] != c.config.MQTTConfig.NameSpace {
+	if segments[0] != c.config.MQTTConfig.NameSpace || segments[1] != "cmd" || segments[3] != "set" || segments[4] != "hold" {
 		return
 	}
-	if segments[1] != "cmd" {
+	reject := func(reason string, args ...interface{}) {
+		logrus.WithFields(logrus.Fields{"topic": topic, "payload": string(message)}).
+			Warnf("Rejected register write: %s", fmt.Sprintf(reason, args...))
+	}
+	inv, ok := c.inverters[segments[2]]
+	if !ok {
+		reject("unknown datalog %q", segments[2])
 		return
 	}
-	if inverter, ok := c.modbusClients[segments[2]]; ok {
-		if segments[3] == "set" {
-			if segments[4] == "hold" {
-				registerID, err := strconv.Atoi(segments[5])
-				if err != nil {
-					return
-				}
-				if holdRegister, ok := registers.HoldIDToRegisterMap[registerID]; ok {
-					register := registers.HoldRegisters[holdRegister]
-					if register.RegisterLength == 0 {
-						value, err := strconv.Atoi(string(message))
-						if err != nil {
-							return
-						}
-						bitValue := modbus.GetBytesForUInt16(uint16(value))
-						command := modbus.BuildPacket(inverter.config.DataLog, inverter.config.Serial, 1, 0x6, uint16(registerID), bitValue...)
-						inverter.modbusClient.SendCommand(command)
-					}
-				}
-			}
-		}
+	registerID, err := strconv.Atoi(segments[5])
+	if err != nil {
+		reject("invalid register id %q", segments[5])
+		return
 	}
+	holdRegister, ok := registers.HoldIDToRegisterMap[registerID]
+	if !ok {
+		reject("unknown hold register %d", registerID)
+		return
+	}
+	register, ok := registers.HoldRegisters[holdRegister]
+	if !ok {
+		reject("unknown hold register %d", registerID)
+		return
+	}
+	if !controllable(register) {
+		reject("register %d (%s) is not writable from Home Assistant", registerID, register.ShortName)
+		return
+	}
+	if register.RegisterLength != 0 {
+		reject("register %d (%s) is not a single register", registerID, register.ShortName)
+		return
+	}
+	value, err := rawValue(register, strings.TrimSpace(string(message)))
+	if err != nil {
+		reject("%v", err)
+		return
+	}
+	min, max := registerRange(register)
+	if value < int64(min) || value > int64(max) {
+		reject("value %d outside allowed range %d..%d for register %d (%s)", value, min, max, registerID, register.ShortName)
+		return
+	}
+	logrus.Infof("Accepted register write: datalog=%s register=%d (%s) value=%d", inv.config.DataLog, registerID, register.ShortName, value)
+	bitValue := modbus.GetBytesForUInt16(uint16(value))
+	command := modbus.BuildPacket(inv.config.DataLog, inv.config.Serial, 1, 0x6, uint16(registerID), bitValue...)
+	inv.client.SendCommand(command)
 }
 
-func (c *client) Done() {
-	for _, inverterClient := range c.modbusClients {
-		inverterClient.modbusClient.Close()
-		inverterClient.done <- true
+// rawValue converts a command payload to the register's raw value. Home
+// Assistant sends values in display units (the discovery config scales min,
+// max and step by the register multiplier), e.g. "48.5" V for a 0.1 V register.
+func rawValue(register registers.Register, payload string) (int64, error) {
+	display, err := strconv.ParseFloat(payload, 64)
+	if err != nil || math.IsNaN(display) || math.IsInf(display, 0) {
+		return 0, fmt.Errorf("value %q is not a number", payload)
 	}
-	c.mqttClient.Close()
+	// Multipliers are float32; go through the shortest decimal form so 0.1
+	// becomes 0.1 rather than 0.10000000149.
+	multiplier, _ := strconv.ParseFloat(strconv.FormatFloat(float64(register.Multiplier), 'g', -1, 32), 64)
+	if multiplier == 0 {
+		multiplier = 1
+	}
+	raw := display / multiplier
+	rounded := math.Round(raw)
+	if math.Abs(raw-rounded) > 1e-6 {
+		return 0, fmt.Errorf("value %q is not a multiple of the register step %g", payload, multiplier)
+	}
+	if rounded < math.MinInt32 || rounded > math.MaxInt32 {
+		return 0, fmt.Errorf("value %q is out of range", payload)
+	}
+	return int64(rounded), nil
 }
 
 func (c *client) reportHomeAssistant(config models.LXPConfig) {
-	//availability := map[string]string{
-	//	"topic": fmt.Sprintf("%s/LWT", c.config.MQTTConfig.NameSpace),
-	//}
 	device := registers.Device{
 		Manufacturer: "LuxPower",
 		Name:         fmt.Sprintf("%s_%s", c.config.MQTTConfig.NameSpace, config.DataLog),
@@ -155,8 +397,8 @@ func (c *client) reportHomeAssistant(config models.LXPConfig) {
 	for id, register := range registers.InputRegisters {
 		registerJson := register.ToJson(int(id), device, c.config.MQTTConfig.NameSpace, config.DataLog)
 		registerString, _ := json.Marshal(registerJson)
-		err := c.mqttClient.SendMessage(fmt.Sprintf("%s/sensor/%s/%s/config", strings.ToLower(c.config.MQTTConfig.HomeAssistant.Prefix), device.Name, strings.ToLower(register.ShortName)),
-			registerString, false)
+		err := c.mqtt.SendMessage(fmt.Sprintf("%s/sensor/%s/%s/config", strings.ToLower(c.config.MQTTConfig.HomeAssistant.Prefix), device.Name, strings.ToLower(register.ShortName)),
+			registerString, true)
 		if err != nil {
 			logrus.Errorf("Error sending sensor config to homeassistant %s", err.Error())
 		}
@@ -164,55 +406,69 @@ func (c *client) reportHomeAssistant(config models.LXPConfig) {
 	for id, register := range registers.HoldRegisters {
 		registerJson := register.ToJson(int(id), device, c.config.MQTTConfig.NameSpace, config.DataLog)
 		registerString, _ := json.Marshal(registerJson)
-		err := c.mqttClient.SendMessage(fmt.Sprintf("%s/%s/%s/%s/config", strings.ToLower(c.config.MQTTConfig.HomeAssistant.Prefix), strings.ToLower(register.HomeAssistantType.String()), device.Name, strings.ToLower(register.ShortName)),
-			registerString, false)
+		err := c.mqtt.SendMessage(fmt.Sprintf("%s/%s/%s/%s/config", strings.ToLower(c.config.MQTTConfig.HomeAssistant.Prefix), strings.ToLower(register.HomeAssistantType.String()), device.Name, strings.ToLower(register.ShortName)),
+			registerString, true)
 		if err != nil {
 			logrus.Errorf("Error sending sensor config to homeassistant %s", err.Error())
 		}
 	}
 }
 
-func (c *client) setupPolling(inverter models.LXPConfig) {
-	var ticker1, ticker2, ticker3 *time.Ticker
-	ticker3 = time.NewTicker(20 * time.Second)
-	if inverter.ShortRead == -1*time.Second {
-		ticker1 = time.NewTicker(time.Hour)
-		ticker1.Stop()
-	} else {
-		ticker1 = time.NewTicker(inverter.ShortRead)
+func (c *client) sendHoldingPolls(inv *inverter) {
+	n := modbus.GetBytesForUInt16(40)
+	for _, start := range []uint16{0, 40, 80, 120, 160} {
+		inv.client.SendCommand(modbus.BuildPacket(inv.config.DataLog, inv.config.Serial, 0, 0x3, start, n...))
 	}
-	if inverter.LongRead == -1*time.Second {
-		ticker2 = time.NewTicker(time.Hour)
-		ticker2.Stop()
-	} else {
-		ticker2 = time.NewTicker(inverter.LongRead)
+}
+
+func (c *client) setupPolling(ctx context.Context, inv *inverter) {
+	cfg := inv.config
+	var short, long <-chan time.Time
+	if cfg.ShortRead != -1*time.Second {
+		t := time.NewTicker(cfg.ShortRead)
+		defer t.Stop()
+		short = t.C
 	}
-	inverterClient, ok := c.modbusClients[inverter.DataLog]
-	if !ok {
-		logrus.Errorf("No configured modbus client for Data Logger %s", inverter.DataLog)
+	if cfg.LongRead != -1*time.Second {
+		t := time.NewTicker(cfg.LongRead)
+		defer t.Stop()
+		long = t.C
 	}
+	lwt := time.NewTicker(20 * time.Second)
+	defer lwt.Stop()
+	connCheck := time.NewTicker(time.Second)
+	defer connCheck.Stop()
+
 	defaultDataLength := modbus.GetBytesForUInt16(40)
-	time.Sleep(5 * time.Second)
-	if inverter.PublishHoldingsOnConnect {
-		inverterClient.modbusClient.SendCommand(modbus.BuildPacket(inverter.DataLog, inverter.Serial, 0, 0x3, 0, defaultDataLength...))
-		inverterClient.modbusClient.SendCommand(modbus.BuildPacket(inverter.DataLog, inverter.Serial, 0, 0x3, 40, defaultDataLength...))
-		inverterClient.modbusClient.SendCommand(modbus.BuildPacket(inverter.DataLog, inverter.Serial, 0, 0x3, 80, defaultDataLength...))
-		inverterClient.modbusClient.SendCommand(modbus.BuildPacket(inverter.DataLog, inverter.Serial, 0, 0x3, 120, defaultDataLength...))
-		inverterClient.modbusClient.SendCommand(modbus.BuildPacket(inverter.DataLog, inverter.Serial, 0, 0x3, 160, defaultDataLength...))
+	wasConnected := false
+	poll := func(function byte, starts ...uint16) {
+		if !inv.client.Connected() {
+			logrus.Debugf("Not connected to %s, skipping poll", cfg.DataLog)
+			return
+		}
+		for _, s := range starts {
+			inv.client.SendCommand(modbus.BuildPacket(cfg.DataLog, cfg.Serial, 0, function, s, defaultDataLength...))
+		}
 	}
 	for {
 		select {
-		case <-ticker1.C:
-			logrus.Info("Polling for inputs 1, 2, and 4")
-			inverterClient.modbusClient.SendCommand(modbus.BuildPacket(inverter.DataLog, inverter.Serial, 0, 0x4, 0, defaultDataLength...))
-			inverterClient.modbusClient.SendCommand(modbus.BuildPacket(inverter.DataLog, inverter.Serial, 0, 0x4, 40, defaultDataLength...))
-			inverterClient.modbusClient.SendCommand(modbus.BuildPacket(inverter.DataLog, inverter.Serial, 0, 0x4, 120, defaultDataLength...))
-		case <-ticker2.C:
-			logrus.Info("Polling for input 3")
-			inverterClient.modbusClient.SendCommand(modbus.BuildPacket(inverter.DataLog, inverter.Serial, 0, 0x3, 160, defaultDataLength...))
-		case <-ticker3.C:
-			c.mqttClient.SendMessage(fmt.Sprintf("%s/LWT", c.config.MQTTConfig.NameSpace), "Online", true)
-		case <-inverterClient.done:
+		case <-short:
+			logrus.Debug("Polling for inputs 1, 2, and 4")
+			poll(0x4, 0, 40, 120)
+		case <-long:
+			logrus.Debug("Polling for input 3")
+			poll(0x4, 80)
+		case <-lwt.C:
+			_ = c.mqtt.SendMessage(fmt.Sprintf("%s/LWT", c.config.MQTTConfig.NameSpace), "Online", true)
+		case <-connCheck.C:
+			// Read the holding registers each time the inverter (re)connects.
+			connected := inv.client.Connected()
+			if connected && !wasConnected && cfg.PublishHoldingsOnConnect {
+				logrus.Debugf("Requesting holding registers from %s", cfg.DataLog)
+				c.sendHoldingPolls(inv)
+			}
+			wasConnected = connected
+		case <-ctx.Done():
 			return
 		}
 	}

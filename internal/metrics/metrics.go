@@ -1,26 +1,50 @@
+// Package metrics wraps DogStatsD behind a small injectable interface.
 package metrics
 
 import (
 	"fmt"
-	"log"
 
-	"github.com/DataDog/datadog-go/statsd"
+	"github.com/DataDog/datadog-go/v5/statsd"
+	"github.com/sirupsen/logrus"
 )
 
-var Metrics *statsd.Client
-var StatsEnabled bool
+// Sink is the subset of the DogStatsD client the bridge uses.
+type Sink interface {
+	Gauge(name string, value float64, tags []string, rate float64) error
+	Count(name string, value int64, tags []string, rate float64) error
+	Close() error
+}
 
+// Nop discards everything; used when statsd is not configured.
+type Nop struct{}
+
+func (Nop) Gauge(string, float64, []string, float64) error { return nil }
+func (Nop) Count(string, int64, []string, float64) error   { return nil }
+func (Nop) Close() error                                   { return nil }
+
+// New returns a DogStatsD sink for addr, or Nop when addr is empty.
+func New(addr string) (Sink, error) {
+	if addr == "" {
+		return Nop{}, nil
+	}
+	return statsd.New(addr)
+}
+
+// FormatTag builds a key:value tag.
 func FormatTag(key, value string) string {
 	return fmt.Sprintf("%s:%s", key, value)
 }
-func SendGaugeMetric(name string, tags []string, value float64) {
-	if StatsEnabled {
-		err := Metrics.Gauge(name, value, tags, 1)
-		if err != nil {
-			log.Printf("Got error trying to send metric %s", err.Error())
-		}
+
+// Gauge sends a gauge, logging (at debug) rather than failing on errors.
+func Gauge(s Sink, name string, tags []string, value float64) {
+	if err := s.Gauge(name, value, tags, 1); err != nil {
+		logrus.Debugf("Error sending metric %s: %s", name, err)
 	}
 }
-func SendIntGaugeMetric(name string, tags []string, value int) {
-	SendGaugeMetric(name, tags, float64(value))
+
+// Count sends a counter increment, logging (at debug) rather than failing on errors.
+func Count(s Sink, name string, tags []string, value int64) {
+	if err := s.Count(name, value, tags, 1); err != nil {
+		logrus.Debugf("Error sending metric %s: %s", name, err)
+	}
 }
