@@ -28,7 +28,7 @@ bridge reads the register, changes only those bits, and writes it back. See [pol
 | 65 |  | `discharge_power_percent_cmd` | Discharging power percentage setting | number | 1 | % | 0 to 100 | `set/hold/65` | 100 |  |
 | 66 |  | `ac_charge_power_cmd` | AC Charge Power | number | 0.1 | kW | 0 to 12 | `set/hold/66` | 120 | Raw value in 100 W units: 120 is 12.0 kW. |
 | 67 |  | `ac_charge_soc_limit` | AC Charge SOC Limit | number | 1 | % | 0 to 101 | `set/hold/67` | 100 | 101 means never stop, used for cell balancing. |
-| 68 |  | `ac_charge_start_1` | AC Charge Window 1 Start | text | 1 |  | `HH:MM` | `set/hold/68` | 00:00 | Time of day, hour in the low byte and minute in the high byte (raw 0x1e07 is 07:30). Encoding from community projects (ant0nkr/luxpower-ha-integration, celsworth/lxp-bridge), not yet confirmed on the EG4 18kPV. Payload `HH:MM` or `H:MM`. |
+| 68 |  | `ac_charge_start_1` | AC Charge Window 1 Start | text | 1 |  | `HH:MM` | `set/hold/68` | 00:00 | Time of day, hour in the low byte and minute in the high byte (raw 0x1e07 is 07:30). Confirmed on the EG4 18kPV: 01:30 set in the EG4 web UI reads 0x1e01. Payload `HH:MM` or `H:MM`. |
 | 69 |  | `ac_charge_end_1` | AC Charge Window 1 End | text | 1 |  | `HH:MM` | `set/hold/69` | 00:00 |  |
 | 70 |  | `ac_charge_start_2` | AC Charge Window 2 Start | text | 1 |  | `HH:MM` | `set/hold/70` | 00:00 | Enabled by `ac_charge_enable` (bit 7 of 21) when AC charge type is time-based. Same encoding as register 68. |
 | 71 |  | `ac_charge_end_2` | AC Charge Window 2 End | text | 1 |  | `HH:MM` | `set/hold/71` | 00:00 |  |

@@ -38,8 +38,9 @@ A `mqtt.read_only` option that rejects every write command, for monitoring-only 
 Holding registers 68-73 (AC charge windows 1-3), 76-81 (forced charge) and 84-89 (forced discharge) are exposed as
 Home Assistant text entities holding `HH:MM`, readable and settable (`set/hold/68` with payload `07:30`). Each register
 holds one time with the hour in the low byte and the minute in the high byte, the opposite of the clock registers; the
-encoding comes from ant0nkr/luxpower-ha-integration and celsworth/lxp-bridge, which agree. Still to confirm: set a
-window in the EG4 app and check that the bridge shows the same time.
+encoding comes from ant0nkr/luxpower-ha-integration and celsworth/lxp-bridge, which agree, and was confirmed on the
+EG4 18kPV on 2026-11-15: AC charge window 3 set to 01:30-02:00 in the EG4 web UI read back as 72 = 0x1e01 and
+73 = 0x0002.
 
 ### Home Assistant availability
 Done in #25: `<namespace>/status` (with an MQTT last will) and `<namespace>/<datalog>/status`, referenced by every
