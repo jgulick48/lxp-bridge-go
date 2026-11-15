@@ -27,10 +27,13 @@ observed, but block 80 is only read every `long_read`).
 
 ## Load power on battery: input 170
 
-Register 170 (`p_load`) tracked `p_gen - p_rec` while on generator. On battery it is expected to drop to about 0, with
-the load showing in `p_eps` (registers 129 + 130), so whole-house load would be `p_eps + p_load` in every mode.
+Register 170 (`p_load`) tracked `p_gen - p_rec` while on generator. It was expected to drop to about 0 on battery,
+with the load showing in `p_eps` (registers 129 + 130). It does not: on battery on 2026-11-15 (06:48-06:50 UTC, no
+generator, no PV) `p_load` read 993-1038 W and `p_eps` read 972-1024 W, so both report the same load. `p_eps + p_load`
+would count it twice.
 
-**To confirm:** compare `p_load` and `p_eps` with the generator off.
+**To confirm:** that `p_load` still equals the house load during a generator run, when `p_eps` reads about 0. If so,
+`p_load` alone is the whole-house load in every mode.
 
 ## Per-leg generator voltage and rectifier power: inputs 195-196 and 199-200
 
