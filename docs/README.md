@@ -7,6 +7,7 @@
 - [Holding registers](holding-registers.md): every setting the bridge publishes or can change, with ranges and command
   topics, plus the settings that are deliberately left read-only.
 - [Open questions](open-questions.md): registers whose meaning is not confirmed yet, and how to check them.
+- [Roadmap](roadmap.md): planned features and their status.
 - [Legacy](legacy/): notes and register lists from the original lxp-bridge project.
 
 Register addresses are decimal. The register maps were checked against an EG4 18kPV (split-phase), the EG4 18kPV Modbus protocol PDF, and the community projects
