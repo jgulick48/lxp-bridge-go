@@ -147,6 +147,9 @@ func build(config models.Config, d deps) (*client, error) {
 		}
 		c.mqtt = m
 	}
+	if config.ReadOnly {
+		logrus.Info("Read-only mode: writes to the inverter are disabled")
+	}
 	for _, modConfig := range config.Inverters {
 		if !modConfig.Enabled {
 			logrus.Warnf("Inverter %s is not enabled in config (enabled: false or missing), skipping", modConfig.DataLog)
@@ -173,6 +176,9 @@ func build(config models.Config, d deps) (*client, error) {
 		mc, err := d.newModbus(modConfig, c, &observer{c: c, tags: []string{metrics.FormatTag("deploymentID", modConfig.DataLog)}})
 		if err != nil {
 			return nil, fmt.Errorf("inverter %s: %w", modConfig.DataLog, err)
+		}
+		if config.ReadOnly && modConfig.ClockSync.Enabled {
+			logrus.Warnf("Inverter %s: clock sync is disabled by read_only; the clock drift metric is still reported", modConfig.DataLog)
 		}
 		cs := clockState{maxDrift: modConfig.ClockSync.MaxDrift}
 		if cs.maxDrift == 0 {
@@ -210,7 +216,9 @@ func (c *client) Start(ctx context.Context) {
 		}()
 		subTopics = append(subTopics, fmt.Sprintf("%s/cmd/%s/set/#", c.config.MQTTConfig.NameSpace, inv.config.DataLog))
 	}
-	c.mqtt.SubMultiple(subTopics)
+	if !c.config.ReadOnly {
+		c.mqtt.SubMultiple(subTopics)
+	}
 	c.mqtt.Connect()
 	c.wg.Add(1)
 	go func() {
@@ -476,6 +484,12 @@ func registerRange(r registers.Register) (min, max int) {
 // Only single-register, Home Assistant controllable hold registers are
 // written, and only with an in-range integer value.
 func (c *client) HandleCommand(topic string, message []byte) {
+	if c.config.ReadOnly {
+		// Commands are not subscribed to in read-only mode; this is a
+		// defensive stop in case one arrives anyway.
+		logrus.WithFields(logrus.Fields{"topic": topic}).Warn("Rejected register write: read-only mode")
+		return
+	}
 	segments := strings.Split(topic, "/")
 	if len(segments) < 6 {
 		return
@@ -567,7 +581,18 @@ func (c *client) HandleCommand(topic string, message []byte) {
 	logrus.Infof("Accepted register write: datalog=%s register=%d (%s) value=%d", inv.config.DataLog, registerID, register.ShortName, value)
 	bitValue := modbus.GetBytesForUInt16(uint16(value))
 	command := modbus.BuildPacket(inv.config.DataLog, inv.config.Serial, 1, 0x6, uint16(registerID), bitValue...)
-	inv.client.SendCommand(command)
+	c.sendWrite(inv, command, fmt.Sprintf("register %d", registerID))
+}
+
+// sendWrite is the single choke point for everything that changes inverter
+// state (function 6 and 0x10 frames). In read-only mode it refuses, whatever
+// the caller. Reads go straight to inv.client.SendCommand.
+func (c *client) sendWrite(inv *inverter, frame []byte, what string) {
+	if c.config.ReadOnly {
+		logrus.Warnf("Read-only mode: refusing to write %s on %s", what, inv.config.DataLog)
+		return
+	}
+	inv.client.SendCommand(frame)
 }
 
 // holdField finds the bit field register named name (case-insensitive) in
@@ -588,6 +613,9 @@ func holdField(id int, name string) (registers.Register, bool) {
 // queueFieldWrite records a bit field change and reads the register; the
 // change is written once the fresh value arrives (see ReportHolding).
 func (c *client) queueFieldWrite(inv *inverter, addr uint16, register registers.Register, value uint16) {
+	if c.config.ReadOnly {
+		return
+	}
 	inv.mu.Lock()
 	fw := inv.pending[addr]
 	if fw == nil {
@@ -631,7 +659,7 @@ func (c *client) ReportHolding(dataLogger string, start uint16, values []uint16)
 			continue
 		}
 		logrus.Infof("Writing register %d on %s: %d -> %d", addr, dataLogger, v, next)
-		inv.client.SendCommand(modbus.BuildPacket(inv.config.DataLog, inv.config.Serial, 1, 0x6, addr, modbus.GetBytesForUInt16(next)...))
+		c.sendWrite(inv, modbus.BuildPacket(inv.config.DataLog, inv.config.Serial, 1, 0x6, addr, modbus.GetBytesForUInt16(next)...), fmt.Sprintf("register %d", addr))
 	}
 	if start <= clockRegStart && int(start)+len(values) > clockRegStart+clockRegCount-1 {
 		off := clockRegStart - int(start)
@@ -670,10 +698,21 @@ func (c *client) reportHomeAssistant(config models.LXPConfig) {
 		Name:         fmt.Sprintf("%s_%s", c.config.MQTTConfig.NameSpace, config.DataLog),
 		Identifiers:  []string{fmt.Sprintf("%s_%s", c.config.MQTTConfig.NameSpace, config.DataLog)},
 	}
+	prefix := strings.ToLower(c.config.MQTTConfig.HomeAssistant.Prefix)
+	configTopic := func(t registers.HomeAssistantType, register registers.Register) string {
+		return fmt.Sprintf("%s/%s/%s/%s/config", prefix, strings.ToLower(t.String()), device.Name, strings.ToLower(register.ShortName))
+	}
 	publish := func(id int, register registers.Register) {
+		if c.config.ReadOnly && register.Writeable {
+			// Clear the controllable entity announced by an earlier run so
+			// Home Assistant removes it, then announce the read-only one.
+			if err := c.mqtt.SendMessage(configTopic(register.DiscoveryType(), register), "", true); err != nil {
+				logrus.Errorf("Error clearing stale controllable entity from homeassistant %s", err.Error())
+			}
+			register = register.AsReadOnly()
+		}
 		registerString, _ := json.Marshal(register.ToJson(id, device, c.config.MQTTConfig.NameSpace, config.DataLog))
-		topic := fmt.Sprintf("%s/%s/%s/%s/config", strings.ToLower(c.config.MQTTConfig.HomeAssistant.Prefix), strings.ToLower(register.DiscoveryType().String()), device.Name, strings.ToLower(register.ShortName))
-		if err := c.mqtt.SendMessage(topic, registerString, true); err != nil {
+		if err := c.mqtt.SendMessage(configTopic(register.DiscoveryType(), register), registerString, true); err != nil {
 			logrus.Errorf("Error sending sensor config to homeassistant %s", err.Error())
 		}
 	}

@@ -64,7 +64,8 @@ Settings only get a value after the first holding read, which happens when the b
 
 Every command is checked before anything is sent: the datalogger must be configured, the register must be writable,
 and the value must be a whole number of steps inside its range. Rejected commands are logged at warn with the reason;
-accepted ones at info.
+accepted ones at info. With top-level `read_only: true` no command topic is subscribed and every write, including
+clock sync, is refused (all writes go through one function that checks the flag).
 
 **Whole-register settings** are written straight away with function 6.
 

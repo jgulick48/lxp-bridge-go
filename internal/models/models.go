@@ -5,7 +5,11 @@ import (
 )
 
 type Config struct {
-	LogLevel     string           `yaml:"loglevel"`
+	LogLevel string `yaml:"loglevel"`
+	// ReadOnly makes the bridge monitoring-only: nothing is ever written to
+	// any inverter (MQTT commands, bit-field writes and clock sync are off)
+	// and Home Assistant is offered sensors only.
+	ReadOnly     bool             `yaml:"read_only"`
 	MQTTConfig   MQTTConfig       `yaml:"mqtt"`
 	StatsDConfig StatsDConfig     `yaml:"statsd"`
 	Prometheus   PrometheusConfig `yaml:"prometheus"`
