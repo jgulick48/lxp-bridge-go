@@ -26,7 +26,7 @@ func (r *recordingSink) Gauge(name string, value float64, tags []string, _ float
 	return nil
 }
 
-func TestGaugeResetsBeforeNegative(t *testing.T) {
+func TestStatsdSinkResetsBeforeNegative(t *testing.T) {
 	tags := []string{"deploymentID:abc"}
 	cases := []struct {
 		name  string
@@ -40,7 +40,7 @@ func TestGaugeResetsBeforeNegative(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &recordingSink{}
-			Gauge(s, "m", tags, tc.value)
+			Gauge(statsdSink{Sink: s}, "m", tags, tc.value)
 			assert.Equal(t, tc.want, s.calls)
 		})
 	}

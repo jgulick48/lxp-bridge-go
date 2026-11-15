@@ -43,6 +43,9 @@ type Client interface {
 	Health() (int, string)
 	// HealthHandler serves the liveness probe.
 	HealthHandler() http.Handler
+	// MetricsHandler serves Prometheus metrics at /metrics; it answers 404
+	// when the prometheus config is not enabled.
+	MetricsHandler() http.Handler
 }
 
 type inverter struct {
@@ -69,6 +72,7 @@ type client struct {
 	config  models.Config
 	mqtt    mqtt.Client
 	metrics metrics.Sink
+	prom    *metrics.Prometheus // nil unless prometheus is enabled
 	now     func() time.Time
 	started time.Time
 
@@ -91,6 +95,7 @@ type client struct {
 type deps struct {
 	mqtt      mqtt.Client
 	metrics   metrics.Sink
+	prom      *metrics.Prometheus
 	now       func() time.Time
 	newModbus func(cfg models.LXPConfig, cb modbus.ParserCallback, obs modbus.Observer) (modbus.Client, error)
 }
@@ -102,8 +107,14 @@ func New(config models.Config) (Client, error) {
 		logrus.Errorf("Error creating stats client, metrics disabled: %s", err)
 		sink = metrics.Nop{}
 	}
+	var prom *metrics.Prometheus
+	if config.Prometheus.Enabled {
+		prom = metrics.NewPrometheus(config.Prometheus.StaleAfter)
+		sink = metrics.Multi{sink, prom}
+	}
 	return build(config, deps{
 		metrics: sink,
+		prom:    prom,
 		now:     time.Now,
 		newModbus: func(cfg models.LXPConfig, cb modbus.ParserCallback, obs modbus.Observer) (modbus.Client, error) {
 			return modbus.NewClient(cfg, cb, obs)
@@ -115,6 +126,7 @@ func build(config models.Config, d deps) (*client, error) {
 	c := &client{
 		config:    config,
 		metrics:   d.metrics,
+		prom:      d.prom,
 		now:       d.now,
 		mqtt:      d.mqtt,
 		inverters: make(map[string]*inverter),
@@ -271,6 +283,14 @@ func (c *client) onMQTTConnect() {
 	}
 }
 
+// MetricsHandler implements Client.
+func (c *client) MetricsHandler() http.Handler {
+	if c.prom == nil {
+		return http.NotFoundHandler()
+	}
+	return c.prom
+}
+
 func (c *client) HealthHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		status, body := c.Health()
@@ -321,8 +341,26 @@ func (c *client) reportHealthMetrics(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			c.dropOfflineSeries()
 			c.emitHealthGauges()
 			c.updateInverterStatus()
+		}
+	}
+}
+
+// dropOfflineSeries removes the Prometheus gauges of every offline inverter
+// (same rule as its availability topic), so a dead inverter's last readings
+// are not scraped as current. Its health gauges are re-added straight after by
+// emitHealthGauges. Holding values, read only every hold_read, stay exposed
+// while the inverter is online.
+func (c *client) dropOfflineSeries() {
+	if c.prom == nil {
+		return
+	}
+	now := c.now()
+	for _, id := range c.order {
+		if !c.inverterOnline(c.inverters[id], now) {
+			c.prom.DropTag(metrics.FormatTag("deploymentID", id))
 		}
 	}
 }
