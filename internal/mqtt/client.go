@@ -18,6 +18,18 @@ const (
 	closeTimeout     = 2 * time.Second
 )
 
+const (
+	// PayloadOnline and PayloadOffline are the Home Assistant default
+	// availability payloads.
+	PayloadOnline  = "online"
+	PayloadOffline = "offline"
+)
+
+// StatusTopic is the bridge availability topic, "<namespace>/status".
+func StatusTopic(namespace string) string {
+	return namespace + "/status"
+}
+
 var errDisabled = errors.New("mqtt client not enabled")
 
 // Client publishes to and receives commands from an MQTT broker.
@@ -72,6 +84,7 @@ func (c *client) Connect() {
 	opts.SetConnectRetry(true)
 	opts.SetConnectRetryInterval(5 * time.Second)
 	opts.SetMaxReconnectInterval(time.Minute)
+	opts.SetWill(StatusTopic(c.config.NameSpace), PayloadOffline, 1, true)
 	opts.SetOnConnectHandler(c.handleConnect)
 	opts.SetConnectionLostHandler(func(_ mqtt.Client, err error) {
 		logrus.Warnf("MQTT connection lost: %v (will reconnect)", err)
@@ -95,6 +108,12 @@ func (c *client) handleConnect(mc mqtt.Client) {
 	c.mux.Unlock()
 	if len(topics) > 0 {
 		c.subscribe(mc, topics)
+	}
+	token := mc.Publish(StatusTopic(c.config.NameSpace), 1, true, PayloadOnline)
+	if !token.WaitTimeout(publishTimeout) {
+		logrus.Warn("Timed out publishing MQTT online status")
+	} else if token.Error() != nil {
+		logrus.Errorf("Error publishing MQTT online status: %v", token.Error())
 	}
 	if c.onConnect != nil {
 		c.onConnect()
@@ -160,6 +179,10 @@ func (c *client) Close() {
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
+			if mc.IsConnectionOpen() {
+				token := mc.Publish(StatusTopic(c.config.NameSpace), 1, true, PayloadOffline)
+				token.WaitTimeout(publishTimeout)
+			}
 			mc.Disconnect(disconnectQuiesc)
 		}()
 		select {

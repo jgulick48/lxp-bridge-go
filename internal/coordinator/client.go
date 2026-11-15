@@ -72,6 +72,12 @@ type client struct {
 	now     func() time.Time
 	started time.Time
 
+	// statusMu guards published, the last availability payload published for
+	// each datalog. It is touched by the health tick and the MQTT on-connect
+	// callback.
+	statusMu  sync.Mutex
+	published map[string]string
+
 	// inverters is populated before Start and read-only afterwards.
 	inverters map[string]*inverter
 	order     []string
@@ -112,6 +118,7 @@ func build(config models.Config, d deps) (*client, error) {
 		now:       d.now,
 		mqtt:      d.mqtt,
 		inverters: make(map[string]*inverter),
+		published: make(map[string]string),
 	}
 	if c.now == nil {
 		c.now = time.Now
@@ -187,13 +194,75 @@ func (c *client) Close() {
 		for _, id := range c.order {
 			c.inverters[id].client.Close()
 		}
+		for _, id := range c.order {
+			c.publishStatus(c.inverters[id], mqtt.PayloadOffline)
+		}
 		c.mqtt.Close()
 		_ = c.metrics.Close()
 	})
 }
 
-// onMQTTConnect republishes the Home Assistant discovery configs.
+// inverterStatusTopic is "<namespace>/<datalog>/status".
+func (c *client) inverterStatusTopic(inv *inverter) string {
+	return fmt.Sprintf("%s/%s/status", c.config.MQTTConfig.NameSpace, inv.config.DataLog)
+}
+
+// inverterOnline reports whether the inverter is connected and has delivered
+// a valid frame since process start within its health check duration.
+func (c *client) inverterOnline(inv *inverter, now time.Time) bool {
+	if !inv.client.Connected() {
+		return false
+	}
+	last := inv.client.LastFrame()
+	if last.IsZero() || last.Before(c.started) {
+		return false
+	}
+	return now.Sub(last) <= inv.config.HealthCheckDuration
+}
+
+// publishStatus sends a retained availability payload and records it as
+// published only when the send succeeded.
+func (c *client) publishStatus(inv *inverter, payload string) {
+	if err := c.mqtt.SendMessage(c.inverterStatusTopic(inv), payload, true); err != nil {
+		logrus.Debugf("Error publishing status for %s: %v", inv.config.DataLog, err)
+		return
+	}
+	c.statusMu.Lock()
+	c.published[inv.config.DataLog] = payload
+	c.statusMu.Unlock()
+}
+
+func statusPayload(online bool) string {
+	if online {
+		return mqtt.PayloadOnline
+	}
+	return mqtt.PayloadOffline
+}
+
+// updateInverterStatus publishes each inverter's availability when it differs
+// from what was last published.
+func (c *client) updateInverterStatus() {
+	now := c.now()
+	for _, id := range c.order {
+		inv := c.inverters[id]
+		payload := statusPayload(c.inverterOnline(inv, now))
+		c.statusMu.Lock()
+		same := c.published[id] == payload
+		c.statusMu.Unlock()
+		if !same {
+			c.publishStatus(inv, payload)
+		}
+	}
+}
+
+// onMQTTConnect republishes inverter availability and, when enabled, the Home
+// Assistant discovery configs.
 func (c *client) onMQTTConnect() {
+	now := c.now()
+	for _, id := range c.order {
+		inv := c.inverters[id]
+		c.publishStatus(inv, statusPayload(c.inverterOnline(inv, now)))
+	}
 	if !c.config.MQTTConfig.HomeAssistant.Enabled {
 		return
 	}
@@ -253,6 +322,7 @@ func (c *client) reportHealthMetrics(ctx context.Context) {
 			return
 		case <-ticker.C:
 			c.emitHealthGauges()
+			c.updateInverterStatus()
 		}
 	}
 }

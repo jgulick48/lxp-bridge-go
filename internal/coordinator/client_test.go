@@ -1,6 +1,7 @@
 package coordinator
 
 import (
+	"encoding/json"
 	"math/bits"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"github.com/jgulick48/lxp-bridge-go/internal/metrics"
 	"github.com/jgulick48/lxp-bridge-go/internal/modbus"
 	"github.com/jgulick48/lxp-bridge-go/internal/models"
+	"github.com/jgulick48/lxp-bridge-go/internal/mqtt"
 	"github.com/jgulick48/lxp-bridge-go/internal/registers"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -383,4 +385,144 @@ func TestLongReadDefault(t *testing.T) {
 	assert.Equal(t, 30*time.Second, c.inverters["A"].config.LongRead)
 	assert.Equal(t, 10*time.Second, c.inverters["B"].config.LongRead)
 	assert.Equal(t, -1*time.Second, c.inverters["C"].config.LongRead)
+}
+
+// statusMQTT records publishes and can fail them on demand.
+type statusMQTT struct {
+	fakeMQTT
+	mu   sync.Mutex
+	msgs []sentMsg
+	fail bool
+}
+
+type sentMsg struct {
+	topic, payload string
+	retained       bool
+}
+
+func (m *statusMQTT) SendMessage(topic string, v interface{}, retained bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.fail {
+		return assert.AnError
+	}
+	s, _ := v.(string)
+	m.msgs = append(m.msgs, sentMsg{topic, s, retained})
+	return nil
+}
+
+func (m *statusMQTT) status(topic string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []string
+	for _, s := range m.msgs {
+		if s.topic == topic {
+			out = append(out, s.payload)
+		}
+	}
+	return out
+}
+
+func newStatusTest(t *testing.T, haEnabled bool) (*client, *fakeModbus, *statusMQTT, *time.Time) {
+	t.Helper()
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	m := &statusMQTT{}
+	var fm *fakeModbus
+	c, err := build(models.Config{
+		MQTTConfig: models.MQTTConfig{NameSpace: "lxp", HomeAssistant: models.HomeAssistantConfig{Enabled: haEnabled, Prefix: "homeassistant"}},
+		Inverters:  []models.LXPConfig{{Enabled: true, DataLog: datalog, Serial: serial, HealthCheckDuration: time.Minute}},
+	}, deps{mqtt: m, now: func() time.Time { return now }, newModbus: func(models.LXPConfig, modbus.ParserCallback, modbus.Observer) (modbus.Client, error) {
+		fm = &fakeModbus{}
+		return fm, nil
+	}})
+	require.NoError(t, err)
+	return c, fm, m, &now
+}
+
+const statusTopic = "lxp/" + datalog + "/status"
+
+func TestInverterOnline(t *testing.T) {
+	c, fm, _, now := newStatusTest(t, false)
+	inv := c.inverters[datalog]
+	start := *now
+
+	fm.connected = true
+	assert.False(t, c.inverterOnline(inv, *now), "no frame yet")
+
+	fm.last = start.Add(-time.Hour)
+	assert.False(t, c.inverterOnline(inv, *now), "frame from before process start")
+
+	fm.last = start.Add(10 * time.Second)
+	assert.True(t, c.inverterOnline(inv, start.Add(30*time.Second)), "connected, fresh")
+	assert.True(t, c.inverterOnline(inv, start.Add(70*time.Second)), "exactly at limit")
+	assert.False(t, c.inverterOnline(inv, start.Add(71*time.Second)), "stale")
+
+	fm.connected = false
+	assert.False(t, c.inverterOnline(inv, start.Add(30*time.Second)), "disconnected")
+}
+
+func TestStatusPublishedOnlyOnChange(t *testing.T) {
+	c, fm, m, now := newStatusTest(t, false)
+	start := *now
+	c.updateInverterStatus()
+	c.updateInverterStatus()
+	assert.Equal(t, []string{"offline"}, m.status(statusTopic))
+
+	fm.connected = true
+	fm.last = start.Add(time.Second)
+	*now = start.Add(10 * time.Second)
+	c.updateInverterStatus()
+	c.updateInverterStatus()
+	assert.Equal(t, []string{"offline", "online"}, m.status(statusTopic))
+
+	*now = start.Add(5 * time.Minute)
+	c.updateInverterStatus()
+	assert.Equal(t, []string{"offline", "online", "offline"}, m.status(statusTopic))
+}
+
+func TestStatusRetriedAfterFailedPublish(t *testing.T) {
+	c, _, m, _ := newStatusTest(t, false)
+	m.fail = true
+	c.updateInverterStatus()
+	assert.Empty(t, m.status(statusTopic))
+	m.fail = false
+	c.updateInverterStatus()
+	assert.Equal(t, []string{"offline"}, m.status(statusTopic))
+	c.updateInverterStatus()
+	assert.Equal(t, []string{"offline"}, m.status(statusTopic))
+}
+
+func TestStatusRepublishedOnMQTTConnectWithoutHA(t *testing.T) {
+	c, fm, m, now := newStatusTest(t, false)
+	fm.connected = true
+	fm.last = now.Add(time.Second)
+	*now = now.Add(10 * time.Second)
+	c.updateInverterStatus()
+	c.onMQTTConnect()
+	assert.Equal(t, []string{"online", "online"}, m.status(statusTopic))
+	for _, s := range m.msgs {
+		assert.NotContains(t, s.topic, "homeassistant/", "discovery must stay gated")
+	}
+}
+
+func TestStatusOfflineOnClose(t *testing.T) {
+	c, fm, m, now := newStatusTest(t, false)
+	fm.connected = true
+	fm.last = now.Add(time.Second)
+	*now = now.Add(10 * time.Second)
+	c.updateInverterStatus()
+	c.Close()
+	assert.Equal(t, []string{"online", "offline"}, m.status(statusTopic))
+	for _, s := range m.msgs {
+		assert.True(t, s.retained, s.topic)
+	}
+}
+
+func TestStatusTopicsMatchDiscovery(t *testing.T) {
+	c, _, _, _ := newStatusTest(t, false)
+	assert.Equal(t, statusTopic, c.inverterStatusTopic(c.inverters[datalog]))
+	r := registers.InputRegisters[registers.InputRegister(0)]
+	js, err := json.Marshal(r.ToJson(0, registers.Device{}, "lxp", datalog))
+	require.NoError(t, err)
+	assert.Contains(t, string(js), `"availability":[{"topic":"`+mqtt.StatusTopic("lxp")+`"},{"topic":"`+statusTopic+`"}]`)
 }

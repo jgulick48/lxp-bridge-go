@@ -67,3 +67,12 @@ func TestBinarySensorDiscovery(t *testing.T) {
 	assert.NotContains(t, m, "command_topic")
 	assert.NotContains(t, m, "unit_of_measurement")
 }
+
+func TestDiscoveryAvailability(t *testing.T) {
+	for _, hr := range []HoldRegister{AC_Charge_Enable} {
+		b, err := json.Marshal((&Register{}).ToJson(int(hr), testDevice, "lxp", "DL"))
+		require.NoError(t, err)
+		assert.Contains(t, string(b), `"availability":[{"topic":"lxp/status"},{"topic":"lxp/DL/status"}]`)
+		assert.Contains(t, string(b), `"availability_mode":"all"`)
+	}
+}

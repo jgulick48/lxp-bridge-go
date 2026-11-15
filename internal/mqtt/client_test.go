@@ -50,3 +50,10 @@ func TestUnreachableBrokerDoesNotPanicOrBlock(t *testing.T) {
 	c.Close()
 	assert.Less(t, time.Since(start), 5*time.Second)
 }
+
+func TestStatusTopic(t *testing.T) {
+	assert.Equal(t, "lxp/status", StatusTopic("lxp"))
+	assert.Equal(t, "home/inv/status", StatusTopic("home/inv"))
+	assert.Equal(t, "online", PayloadOnline)
+	assert.Equal(t, "offline", PayloadOffline)
+}

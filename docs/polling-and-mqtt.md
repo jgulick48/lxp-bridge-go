@@ -33,6 +33,8 @@ Requests are queued (32 deep) and sent one per second. Polls are skipped while t
 | `<namespace>/<datalog>/hold/<name>` | published, retained | Setting in display units, see [holding registers](holding-registers.md) |
 | `<namespace>/cmd/<datalog>/set/hold/<register>` | subscribed | New value for a whole-register setting |
 | `<namespace>/cmd/<datalog>/set/hold/<register>/<field>` | subscribed | `1`/`0` (or `ON`/`OFF`) for a switch, or a number for a multi-bit field |
+| `<namespace>/status` | published, retained | `online` while the bridge is connected to the broker; `offline` is the MQTT last will and is also sent on clean shutdown |
+| `<namespace>/<datalog>/status` | published, retained | `online` when the inverter is connected and a valid frame arrived within `health_check_duration`, otherwise `offline` |
 | `<namespace>/LWT` | published every 20s, retained | `Online` |
 
 `<name>` is the lowercase MQTT name from the register tables, for example `lxp/BA12345678/input/p_load`.
@@ -51,6 +53,9 @@ With `mqtt.homeassistant.enabled: true`, every register is announced on each MQT
 
 All entities belong to one device named `<namespace>_<datalog>`, with unique IDs `<namespace>_<datalog>_<name>`
 (a few older energy sensors keep the IDs they had before, such as `..._pv_generation_today`).
+Each entity lists `<namespace>/status` and `<namespace>/<datalog>/status` as availability topics with
+`availability_mode: all`, so it shows as unavailable when either the bridge or the inverter connection is down. The
+status topics are published even when discovery is disabled.
 Settings only get a value after the first holding read, which happens when the bridge connects.
 
 ## Writes
