@@ -21,8 +21,12 @@ const (
 	clockWarnInterval = time.Hour
 	// clockMaxFailures is how many consecutive failed verifications stop syncing.
 	clockMaxFailures = 3
-	// clockVerifyDelay ignores reads right after a write (stale broadcasts).
-	clockVerifyDelay = 2 * time.Second
+	// clockVerifyDelay is how long after a write a read still showing drift is
+	// ignored rather than counted as a failure: it may answer a read sent
+	// before the write (the datalogger broadcasts replies to every client). A
+	// read showing the corrected clock is accepted at any time, since a stale
+	// reply can't show it.
+	clockVerifyDelay = 30 * time.Second
 )
 
 // clockState is the per inverter clock sync state, guarded by inverter.mu.
@@ -88,7 +92,7 @@ func (c *client) checkClock(inv *inverter, now time.Time, regs []uint16) {
 	}
 	inSync := valid && absDuration(drift) <= cs.maxDrift
 
-	if cs.verifying && now.Sub(cs.lastWrite) >= clockVerifyDelay {
+	if cs.verifying && (inSync || now.Sub(cs.lastWrite) >= clockVerifyDelay) {
 		cs.verifying = false
 		if inSync {
 			cs.failures = 0

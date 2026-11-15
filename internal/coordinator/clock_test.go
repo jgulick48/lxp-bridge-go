@@ -153,8 +153,9 @@ func TestClockSyncWritesAndVerifies(t *testing.T) {
 	assert.Equal(t, h.wantSync(), sent[0])
 	assert.Equal(t, modbus.BuildPacket(datalog, serial, 0, 0x3, 0, modbus.GetBytesForUInt16(40)...), sent[1])
 
-	// Verification read shows a good clock: failure count stays at zero and no more writes.
-	h.now = h.now.Add(5 * time.Second)
+	// The queued verification read answers about a second later and shows a
+	// good clock: accepted straight away, no more writes.
+	h.now = h.now.Add(time.Second)
 	h.report(0)
 	assert.Len(t, h.f.sent(), 2)
 	assert.Equal(t, 0, h.c.inverters[datalog].clock.failures)
@@ -184,7 +185,7 @@ func TestClockSyncGivesUpAfterThreeFailures(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		h.report(-5 * time.Minute) // triggers write
 		require.Len(t, h.f.sent(), 2*(i+1))
-		h.now = h.now.Add(5 * time.Second)
+		h.now = h.now.Add(clockVerifyDelay)
 		h.report(-5 * time.Minute) // failed verification
 		h.now = h.now.Add(clockSyncInterval)
 	}
@@ -197,7 +198,7 @@ func TestClockSyncGivesUpAfterThreeFailures(t *testing.T) {
 func TestClockGoodReadResetsFailures(t *testing.T) {
 	h := newClockHarness(t, syncOn)
 	h.report(-5 * time.Minute)
-	h.now = h.now.Add(5 * time.Second)
+	h.now = h.now.Add(clockVerifyDelay)
 	h.report(-5 * time.Minute)
 	require.Equal(t, 1, h.c.inverters[datalog].clock.failures)
 	h.now = h.now.Add(time.Minute)
@@ -209,7 +210,10 @@ func TestClockStaleReadRightAfterWriteIsNotAFailure(t *testing.T) {
 	h := newClockHarness(t, syncOn)
 	h.report(-5 * time.Minute)
 	h.report(-5 * time.Minute) // another client's reply arriving immediately
+	h.now = h.now.Add(clockVerifyDelay - time.Second)
+	h.report(-5 * time.Minute) // still inside the window
 	assert.Equal(t, 0, h.c.inverters[datalog].clock.failures)
+	assert.True(t, h.c.inverters[datalog].clock.verifying)
 	assert.Len(t, h.f.sent(), 2)
 }
 
