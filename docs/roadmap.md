@@ -4,28 +4,29 @@ Planned features, most valuable first. Nothing here is scheduled; each item beco
 
 ## Planned
 
-### Whole-house load sensor
-The original plan was a derived `p_house_load = p_eps + p_load`, assuming `p_load` (input 170) drops to about 0 on
-battery. It does not. On battery on 2026-11-15 (06:48-06:50 UTC, no generator, no PV) `p_load` read 993-1038 W while
-`p_eps` (inputs 129 + 130) read 972-1024 W: both report the same load, so the sum would count it twice.
-
-`p_load` appears to be the whole-house load in every mode on its own. If that holds while the generator runs (when
-`p_eps` reads about 0), no derived sensor is needed: `p_load` just needs its description and Home Assistant name
-updated to "House Load".
-
-**Next step:** confirm `p_load` against `p_gen - p_rec` during a generator run (see [open questions](open-questions.md)).
-
-### Inverter clock sync (in progress)
-On connect, compare the inverter clock (holding 12-14) with the host clock and correct it when it drifts past a
-configurable limit. Time-window charging depends on the inverter clock.
-
-### Prometheus `/metrics` endpoint (in progress)
-Serve the register values and bridge metrics on the existing health server for direct scraping (for example by
-VictoriaMetrics), as an alternative to DogStatsD. This avoids statsd gauge quirks such as signed values being
-treated as deltas (#22). Keep the metric names (`<namespace>_<register>` with label `deploymentID`) so dashboards keep
-working.
+Nothing is planned right now. Possible follow-ups: retire the legacy `<namespace>/LWT` heartbeat now that
+`<namespace>/status` exists, expose the AC-first time windows (holding 152-157), and confirm on hardware that the
+inverter accepts the clock sync write (function 0x10).
 
 ## Resolved
+
+### Whole-house load
+No derived sensor is needed: `p_load` (input 170) is the whole-house load in every mode and is now named "House Load"
+in Home Assistant (the entity ID is unchanged). The original plan, `p_eps + p_load`, would have counted the load twice.
+Measured on an EG4 18kPV on 2026-11-15:
+
+| Mode | `p_load` | `p_eps` | Other |
+|---|---|---|---|
+| Battery, no PV (07:00-13:00 UTC, hourly averages) | 963-1027 W | 966-1029 W | |
+| Battery and PV (14:00-15:30 UTC, hourly averages) | 1016-1038 W | 1017-1048 W | |
+| Generator connected (16:49-17:11 UTC, 112 samples) | 1156 W average | 0 W | `p_gen - p_rec` 1178 W average |
+
+### Inverter clock sync
+Done in #27: per-inverter `clock_sync` compares holding 12-14 with the host clock and corrects drift past `max_drift`.
+The drift is reported as `<namespace>_bridge_clock_drift_s`. See the README.
+
+### Prometheus `/metrics` endpoint
+Done in #28: `prometheus.enabled` serves the same metrics at `GET /metrics` on the health server. See the README.
 
 ### Read-only mode
 Top-level `read_only: true` (not `mqtt.read_only`, because clock sync also writes) blocks MQTT writes, bit-field writes
