@@ -31,6 +31,8 @@ const (
 	// fieldWriteTimeout is how long a bit field change waits for the read
 	// of its register before it is dropped.
 	fieldWriteTimeout = 30 * time.Second
+	// defaultPrometheusStale is how long a gauge is exposed after its last update.
+	defaultPrometheusStale = 5 * time.Minute
 )
 
 // Client ties the inverter connections, MQTT and metrics together.
@@ -43,6 +45,9 @@ type Client interface {
 	Health() (int, string)
 	// HealthHandler serves the liveness probe.
 	HealthHandler() http.Handler
+	// MetricsHandler serves Prometheus metrics at /metrics; it answers 404
+	// when the prometheus config is not enabled.
+	MetricsHandler() http.Handler
 }
 
 type inverter struct {
@@ -69,6 +74,7 @@ type client struct {
 	config  models.Config
 	mqtt    mqtt.Client
 	metrics metrics.Sink
+	prom    *metrics.Prometheus // nil unless prometheus is enabled
 	now     func() time.Time
 	started time.Time
 
@@ -91,6 +97,7 @@ type client struct {
 type deps struct {
 	mqtt      mqtt.Client
 	metrics   metrics.Sink
+	prom      *metrics.Prometheus
 	now       func() time.Time
 	newModbus func(cfg models.LXPConfig, cb modbus.ParserCallback, obs modbus.Observer) (modbus.Client, error)
 }
@@ -102,8 +109,18 @@ func New(config models.Config) (Client, error) {
 		logrus.Errorf("Error creating stats client, metrics disabled: %s", err)
 		sink = metrics.Nop{}
 	}
+	var prom *metrics.Prometheus
+	if config.Prometheus.Enabled {
+		stale := config.Prometheus.StaleAfter
+		if stale == 0 {
+			stale = defaultPrometheusStale
+		}
+		prom = metrics.NewPrometheus(stale)
+		sink = metrics.Multi{sink, prom}
+	}
 	return build(config, deps{
 		metrics: sink,
+		prom:    prom,
 		now:     time.Now,
 		newModbus: func(cfg models.LXPConfig, cb modbus.ParserCallback, obs modbus.Observer) (modbus.Client, error) {
 			return modbus.NewClient(cfg, cb, obs)
@@ -115,6 +132,7 @@ func build(config models.Config, d deps) (*client, error) {
 	c := &client{
 		config:    config,
 		metrics:   d.metrics,
+		prom:      d.prom,
 		now:       d.now,
 		mqtt:      d.mqtt,
 		inverters: make(map[string]*inverter),
@@ -269,6 +287,14 @@ func (c *client) onMQTTConnect() {
 	for _, id := range c.order {
 		c.reportHomeAssistant(c.inverters[id].config)
 	}
+}
+
+// MetricsHandler implements Client.
+func (c *client) MetricsHandler() http.Handler {
+	if c.prom == nil {
+		return http.NotFoundHandler()
+	}
+	return c.prom
 }
 
 func (c *client) HealthHandler() http.Handler {

@@ -61,10 +61,13 @@ mqtt:
     prefix: homeassistant
 statsd:
   server: ""
+prometheus:
+  enabled: false
+  stale_after: 5m
 ```
 
 ### Configuration keys
-Top level: `loglevel` (`debug|info|warn|error`, default `info`; the `-logLevel` flag overrides it), `mqtt`, `statsd`, `openEVSE`, `inverters`.
+Top level: `loglevel` (`debug|info|warn|error`, default `info`; the `-logLevel` flag overrides it), `mqtt`, `statsd`, `prometheus`, `openEVSE`, `inverters`.
 Flags: `-configFile`, `-logLevel`, `-healthAddr` (default `0.0.0.0:8080`).
 
 Per inverter (`inverters[]`):
@@ -100,6 +103,14 @@ Additionally, with the same tag:
 * `<namespace>_bridge_frames` count, tagged `result:ok|crc_error|parse_error`
 * `<namespace>_bridge_reconnects` count
 * `<namespace>_bridge_commands_dropped` count (command queue of 32 was full)
+
+### Prometheus metrics
+Set `prometheus.enabled: true` to serve the same metrics at `GET /metrics` (Prometheus text format 0.0.4) on the
+`-healthAddr` server, so Prometheus or VictoriaMetrics can scrape directly. It runs alongside DogStatsD and is off by default.
+* Names are unchanged, e.g. `lxp_p_battery{deploymentID="BA12345678"}`; tags become labels.
+* Counts are exposed as counters with a `_total` suffix, e.g. `lxp_bridge_frames_total{deploymentID="...",result="ok"}`.
+* Negative gauge values are exposed as-is (the statsd zero reset is only sent to statsd).
+* Gauges not updated for `prometheus.stale_after` (default `5m`) are omitted, so a silent inverter does not look alive. Counters never expire.
 
 ### Availability
 The bridge publishes retained availability payloads (`online` / `offline`) so Home Assistant marks entities

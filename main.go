@@ -27,7 +27,7 @@ var (
 var (
 	configLocation = flag.String("configFile", "./config.yml", "Location for the configuration file.")
 	logLevelFlag   = flag.String("logLevel", "", "Log level (debug, info, warn, error). Overrides the loglevel config key.")
-	healthAddr     = flag.String("healthAddr", "0.0.0.0:8080", "Listen address for the /health endpoint.")
+	healthAddr     = flag.String("healthAddr", "0.0.0.0:8080", "Listen address for the /health and /metrics endpoints.")
 )
 
 func main() {
@@ -62,6 +62,7 @@ func run() int {
 
 	mux := http.NewServeMux()
 	mux.Handle("/health", coord.HealthHandler())
+	mux.Handle("/metrics", coord.MetricsHandler())
 	server := &http.Server{Addr: *healthAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 	serverErr := make(chan error, 1)
 	go func() {

@@ -5,11 +5,12 @@ import (
 )
 
 type Config struct {
-	LogLevel     string         `yaml:"loglevel"`
-	MQTTConfig   MQTTConfig     `yaml:"mqtt"`
-	StatsDConfig StatsDConfig   `yaml:"statsd"`
-	Inverters    []LXPConfig    `yaml:"inverters"`
-	OpenEVSE     OpenEVSEConfig `yaml:"openEVSE"`
+	LogLevel     string           `yaml:"loglevel"`
+	MQTTConfig   MQTTConfig       `yaml:"mqtt"`
+	StatsDConfig StatsDConfig     `yaml:"statsd"`
+	Prometheus   PrometheusConfig `yaml:"prometheus"`
+	Inverters    []LXPConfig      `yaml:"inverters"`
+	OpenEVSE     OpenEVSEConfig   `yaml:"openEVSE"`
 }
 
 type MQTTConfig struct {
@@ -34,6 +35,13 @@ type OpenEVSEConfig struct {
 
 type StatsDConfig struct {
 	StatsServer string `yaml:"server"`
+}
+
+// PrometheusConfig enables the /metrics endpoint on the health HTTP server.
+type PrometheusConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// StaleAfter hides gauges not updated for this long (default 5m).
+	StaleAfter time.Duration `yaml:"stale_after"`
 }
 
 type HomeAssistantConfig struct {
