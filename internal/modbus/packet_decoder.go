@@ -144,6 +144,18 @@ func BuildPacket(dataLogger, serial string, mode, function byte, register uint16
 	return data
 }
 
+// BuildWriteMulti builds a function 0x10 (write multiple registers) frame:
+// after the start register come the register count (u16 LE), the byte count
+// (1 byte) and the values (u16 LE each).
+func BuildWriteMulti(dataLogger, serial string, start uint16, values []uint16) []byte {
+	payload := GetBytesForUInt16(uint16(len(values)))
+	payload = append(payload, byte(2*len(values)))
+	for _, v := range values {
+		payload = append(payload, GetBytesForUInt16(v)...)
+	}
+	return BuildPacket(dataLogger, serial, 1, 0x10, start, payload...)
+}
+
 func GetBytesForUInt16(value uint16) []byte {
 	result := make([]byte, 2)
 	binary.LittleEndian.PutUint16(result, value)
@@ -242,6 +254,9 @@ func ParsePacket(data []byte, function byte, callback ParserCallback, dataLogger
 				vals[i] = binary.LittleEndian.Uint16(data[17+2*i:])
 			}
 			reportHolding(uint16(dataLength), vals, callback, dataLogger)
+		case 0x10:
+			// Ack of a write multiple; nothing to decode beyond the start register.
+			log.Debugf("Got write multiple ack from %s for register %d", dataLogger, dataLength)
 		case 6:
 			// Echo of a single register write: [register][value].
 			if _, ok := values(14, 4); !ok {

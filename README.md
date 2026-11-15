@@ -82,6 +82,17 @@ Per inverter (`inverters[]`):
 * `crc_mode`:
   * `log` (default): translated-data frames are CRC16/MODBUS checked; a mismatch is counted (`result:crc_error`) and logged at debug, but the frame is still decoded.
   * `drop`: frames with a bad CRC are discarded.
+* `clock_sync`: keeps the inverter clock (holding registers 12-14, local time) in step with the host, because
+  time-of-use charge windows follow the inverter clock and the datalogger clock drifts.
+  * `enabled`: default `false` (opt-in).
+  * `timezone`: IANA zone name such as `America/Denver`. Required when `enabled` is true, there is no default
+    (containers usually run in UTC and a wrong zone would shift charge windows by hours). Startup fails if it is
+    missing or unknown. When set, the drift gauge below is reported even with `enabled: false`.
+  * `max_drift`: allowed difference before the clock is rewritten (default 60s).
+
+  The clock is written with one function 0x10 (write multiple registers) command followed by a read of holding block 0
+  to verify. At most one write per hour per inverter. If three verifications in a row still show drift, syncing stops
+  until restart and an error is logged (the datalogger may not support function 0x10).
 
 The connection to the datalogger is re-established automatically with exponential backoff (1s up to 30s). MQTT also reconnects
 on its own; on every (re)connect the command topics are resubscribed and the Home Assistant discovery configs are republished.
@@ -100,6 +111,8 @@ Additionally, with the same tag:
 * `<namespace>_bridge_frames` count, tagged `result:ok|crc_error|parse_error`
 * `<namespace>_bridge_reconnects` count
 * `<namespace>_bridge_commands_dropped` count (command queue of 32 was full)
+* `<namespace>_bridge_clock_drift_s` gauge, inverter clock minus host clock in seconds (each holding read of
+  registers 12-14; only when `clock_sync.timezone` is set)
 
 ### Availability
 The bridge publishes retained availability payloads (`online` / `offline`) so Home Assistant marks entities

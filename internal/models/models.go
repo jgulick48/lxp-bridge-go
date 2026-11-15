@@ -57,6 +57,19 @@ type LXPConfig struct {
 	HealthCheckDuration time.Duration `yaml:"health_check_duration"`
 	// CRCMode is "log" (default) or "drop"; see README.
 	CRCMode string `yaml:"crc_mode"`
+	// ClockSync keeps the inverter clock (holding registers 12-14) in sync with the host.
+	ClockSync ClockSyncConfig `yaml:"clock_sync"`
+}
+
+// ClockSyncConfig configures inverter clock synchronisation.
+type ClockSyncConfig struct {
+	// Enabled turns on writing the clock. Off by default.
+	Enabled bool `yaml:"enabled"`
+	// Timezone is the IANA zone the inverter clock is kept in. Required when
+	// enabled; also enables the drift gauge when set.
+	Timezone string `yaml:"timezone"`
+	// MaxDrift is the allowed difference before a sync; 60s when 0.
+	MaxDrift time.Duration `yaml:"max_drift"`
 }
 
 type MessageJson map[string]interface{}
