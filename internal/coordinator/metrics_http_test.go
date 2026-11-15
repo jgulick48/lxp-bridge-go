@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/jgulick48/lxp-bridge-go/internal/metrics"
 	"github.com/jgulick48/lxp-bridge-go/internal/modbus"
@@ -54,4 +55,50 @@ func TestMetricsEndpointDisabled(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c.MetricsHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+func scrape(t *testing.T, c *client) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	c.MetricsHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	return rec.Body.String()
+}
+
+func TestOfflineInverterSeriesDropped(t *testing.T) {
+	now := time.Date(2026, 11, 15, 12, 0, 0, 0, time.UTC)
+	prom := metrics.NewPrometheus(0)
+	mods := map[string]*fakeModbus{"UP": {connected: true}, "DOWN": {connected: true}}
+	c, err := build(models.Config{
+		MQTTConfig: models.MQTTConfig{NameSpace: "lxp"},
+		Inverters:  []models.LXPConfig{{Enabled: true, DataLog: "UP"}, {Enabled: true, DataLog: "DOWN"}},
+	}, deps{
+		mqtt: fakeMQTT{}, metrics: metrics.Multi{metrics.Nop{}, prom}, prom: prom,
+		now: func() time.Time { return now },
+		newModbus: func(cfg models.LXPConfig, _ modbus.ParserCallback, _ modbus.Observer) (modbus.Client, error) {
+			return mods[cfg.DataLog], nil
+		},
+	})
+	require.NoError(t, err)
+	now = now.Add(time.Minute)
+	mods["UP"].last, mods["DOWN"].last = now, now
+	for _, id := range []string{"UP", "DOWN"} {
+		metrics.Gauge(c.metrics, "lxp_p_load", []string{"deploymentID:" + id}, 1000)
+		metrics.Gauge(c.metrics, "lxp_hold_value", []string{"deploymentID:" + id}, 7) // set once, like a hold read
+		metrics.Count(c.metrics, "lxp_bridge_frames", []string{"deploymentID:" + id}, 1)
+	}
+
+	// DOWN disconnects; ten minutes pass with no new readings at all.
+	mods["DOWN"].connected = false
+	now = now.Add(time.Minute)
+	mods["UP"].last = now
+	c.dropOfflineSeries()
+	c.emitHealthGauges()
+
+	body := scrape(t, c)
+	assert.Contains(t, body, `lxp_p_load{deploymentID="UP"} 1000`)
+	assert.Contains(t, body, `lxp_hold_value{deploymentID="UP"} 7`, "an online inverter keeps slow-changing values")
+	assert.NotContains(t, body, `lxp_p_load{deploymentID="DOWN"}`)
+	assert.NotContains(t, body, `lxp_hold_value{deploymentID="DOWN"}`)
+	assert.Contains(t, body, `lxp_bridge_connected{deploymentID="DOWN"} 0`, "health gauges are re-added")
+	assert.Contains(t, body, `lxp_bridge_frames_total{deploymentID="DOWN"} 1`, "counters are kept")
 }

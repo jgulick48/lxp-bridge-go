@@ -40,7 +40,8 @@ type StatsDConfig struct {
 // PrometheusConfig enables the /metrics endpoint on the health HTTP server.
 type PrometheusConfig struct {
 	Enabled bool `yaml:"enabled"`
-	// StaleAfter hides gauges not updated for this long (default 5m).
+	// StaleAfter hides gauges not updated for this long. 0 (default) disables
+	// it; an offline inverter's gauges are dropped regardless.
 	StaleAfter time.Duration `yaml:"stale_after"`
 }
 

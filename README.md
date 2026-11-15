@@ -63,7 +63,6 @@ statsd:
   server: ""
 prometheus:
   enabled: false
-  stale_after: 5m
 ```
 
 ### Configuration keys
@@ -110,7 +109,11 @@ Set `prometheus.enabled: true` to serve the same metrics at `GET /metrics` (Prom
 * Names are unchanged, e.g. `lxp_p_battery{deploymentID="BA12345678"}`; tags become labels.
 * Counts are exposed as counters with a `_total` suffix, e.g. `lxp_bridge_frames_total{deploymentID="...",result="ok"}`.
 * Negative gauge values are exposed as-is (the statsd zero reset is only sent to statsd).
-* Gauges not updated for `prometheus.stale_after` (default `5m`) are omitted, so a silent inverter does not look alive. Counters never expire.
+* While an inverter is offline (the same rule as its `<namespace>/<datalog>/status` topic), all of its gauges are
+  dropped except the `bridge_*` health gauges, so its last readings are not scraped as current. They come back with
+  the next reading. Counters are never dropped.
+* Optionally, `prometheus.stale_after` (e.g. `30m`) also hides any single gauge not updated for that long. It is off by
+  default because settings are only re-read every `hold_read` (15m).
 
 ### Availability
 The bridge publishes retained availability payloads (`online` / `offline`) so Home Assistant marks entities

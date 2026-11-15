@@ -31,8 +31,6 @@ const (
 	// fieldWriteTimeout is how long a bit field change waits for the read
 	// of its register before it is dropped.
 	fieldWriteTimeout = 30 * time.Second
-	// defaultPrometheusStale is how long a gauge is exposed after its last update.
-	defaultPrometheusStale = 5 * time.Minute
 )
 
 // Client ties the inverter connections, MQTT and metrics together.
@@ -111,11 +109,7 @@ func New(config models.Config) (Client, error) {
 	}
 	var prom *metrics.Prometheus
 	if config.Prometheus.Enabled {
-		stale := config.Prometheus.StaleAfter
-		if stale == 0 {
-			stale = defaultPrometheusStale
-		}
-		prom = metrics.NewPrometheus(stale)
+		prom = metrics.NewPrometheus(config.Prometheus.StaleAfter)
 		sink = metrics.Multi{sink, prom}
 	}
 	return build(config, deps{
@@ -347,8 +341,26 @@ func (c *client) reportHealthMetrics(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			c.dropOfflineSeries()
 			c.emitHealthGauges()
 			c.updateInverterStatus()
+		}
+	}
+}
+
+// dropOfflineSeries removes the Prometheus gauges of every offline inverter
+// (same rule as its availability topic), so a dead inverter's last readings
+// are not scraped as current. Its health gauges are re-added straight after by
+// emitHealthGauges. Holding values, read only every hold_read, stay exposed
+// while the inverter is online.
+func (c *client) dropOfflineSeries() {
+	if c.prom == nil {
+		return
+	}
+	now := c.now()
+	for _, id := range c.order {
+		if !c.inverterOnline(c.inverters[id], now) {
+			c.prom.DropTag(metrics.FormatTag("deploymentID", id))
 		}
 	}
 }

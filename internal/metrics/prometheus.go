@@ -24,6 +24,7 @@ type Prometheus struct {
 type promSeries struct {
 	name   string
 	labels string // rendered {k="v",...} or ""
+	tags   []string
 	value  float64
 	set    time.Time
 }
@@ -47,7 +48,7 @@ func (p *Prometheus) Gauge(name string, value float64, tags []string, _ float64)
 	key := name + labels
 	s := p.gauges[key]
 	if s == nil {
-		s = &promSeries{name: name, labels: labels}
+		s = &promSeries{name: name, labels: labels, tags: append([]string(nil), tags...)}
 		p.gauges[key] = s
 	}
 	s.value = value
@@ -68,6 +69,22 @@ func (p *Prometheus) Count(name string, value int64, tags []string, _ float64) e
 	}
 	s.value += float64(value)
 	return nil
+}
+
+// DropTag removes every gauge carrying tag (for example "deploymentID:BA..."),
+// so an inverter that went offline stops being exposed until it reports
+// again. Counters are kept.
+func (p *Prometheus) DropTag(tag string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for k, s := range p.gauges {
+		for _, t := range s.tags {
+			if t == tag {
+				delete(p.gauges, k)
+				break
+			}
+		}
+	}
 }
 
 // Close is a no-op.

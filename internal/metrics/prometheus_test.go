@@ -3,6 +3,7 @@ package metrics
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
@@ -107,4 +108,18 @@ func TestMultiFansOutAndReturnsFirstError(t *testing.T) {
 	assert.Equal(t, 3, b.calls)
 	assert.Equal(t, 3, c.calls)
 	assert.NoError(t, Multi{c}.Gauge("g", 1, nil, 1))
+}
+
+func TestPrometheusDropTag(t *testing.T) {
+	p := NewPrometheus(0)
+	_ = p.Gauge("a", 1, []string{"deploymentID:X"}, 1)
+	_ = p.Gauge("a", 2, []string{"deploymentID:Y"}, 1)
+	_ = p.Count("c", 1, []string{"deploymentID:X"}, 1)
+	p.DropTag("deploymentID:X")
+	rec := httptest.NewRecorder()
+	p.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := rec.Body.String()
+	assert.NotContains(t, body, `a{deploymentID="X"}`)
+	assert.Contains(t, body, `a{deploymentID="Y"} 2`)
+	assert.Contains(t, body, `c_total{deploymentID="X"} 1`)
 }
