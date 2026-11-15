@@ -19,6 +19,7 @@ VERSION := $(VERSION)
 GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 PLATFORMS ?= linux/amd64,linux/arm64
 BUILDER ?= lxp-bridge-go
+GIT_REMOTE ?= origin
 BIN := bin/lxp-bridge-go
 
 # ====================================================================================
@@ -100,11 +101,28 @@ docker.build: ## Build and load Docker image locally
 	docker build --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(GIT_SHA) -t $(IMAGE):$(VERSION) -t $(IMAGE):latest .
 	@$(OK) docker build
 
+.PHONY: git.check-clean
+git.check-clean: ## Fail if tracked files have uncommitted changes (the image must match the tagged commit)
+	@if ! git diff --quiet HEAD --; then \
+		echo "${TIME} ${RED}[FAIL]${CNone} uncommitted changes to tracked files: commit or stash them before docker.push"; exit 1; \
+	fi
+	@if git rev-parse -q --verify "refs/tags/$(VERSION)" > /dev/null; then \
+		echo "${TIME} ${RED}[FAIL]${CNone} git tag $(VERSION) already exists"; exit 1; \
+	fi
+
 .PHONY: docker.push
-docker.push: docker.buildx.setup ## Build and push Docker image to registry
+docker.push: git.check-clean docker.buildx.setup ## Build and push Docker image to registry, then tag the commit with the version
 	@$(INFO) docker buildx push
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORMS) --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(GIT_SHA) -t $(IMAGE):$(VERSION) -t $(IMAGE):latest --push .
 	@$(OK) pushed $(IMAGE):$(VERSION)
+	@$(MAKE) --no-print-directory git.tag VERSION=$(VERSION)
+
+.PHONY: git.tag
+git.tag: ## Tag HEAD with VERSION and push the tag to $(GIT_REMOTE)
+	@$(INFO) git tag $(VERSION)
+	git tag -a $(VERSION) -m "Docker image $(IMAGE):$(VERSION)" HEAD
+	git push $(GIT_REMOTE) refs/tags/$(VERSION)
+	@$(OK) tagged $(GIT_SHA) as $(VERSION)
 
 .PHONY: release
 release: test docker.push ## Run tests and push Docker image
