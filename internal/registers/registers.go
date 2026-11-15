@@ -2,6 +2,7 @@ package registers
 
 import (
 	"fmt"
+	"math/bits"
 	"strings"
 )
 
@@ -139,6 +140,27 @@ const (
 	V_PV_3
 	Warning_Code
 	Warning_Code_BMS
+	P_LOAD
+	E_LOAD_DAY
+	E_LOAD_ALL
+	CONSUMPTION_POWER
+	I_PV_1
+	I_PV_2
+	I_PV_3
+	GEN_DRY_CONTACT
+	GEN_COOL_DOWN
+	V_GRID_L1
+	V_GRID_L2
+	V_GEN_L1
+	V_GEN_L2
+	P_INV_L1
+	P_INV_L2
+	P_REC_L1
+	P_REC_L2
+	P_TO_GRID_L1
+	P_TO_GRID_L2
+	P_TO_USER_L1
+	P_TO_USER_L2
 )
 
 const (
@@ -163,6 +185,35 @@ const (
 	Reconnect_Time
 	Start_PV_Volt
 	PV_Input_Model
+	Discharge_Power_Percent_CMD
+	AC_Charge_Power_CMD
+	AC_Charge_SOC_Limit
+	Forced_Dischg_Power_CMD
+	Forced_Dischg_SOC_Limit
+	Charge_Rate
+	Discharge_Rate
+	Discharge_Cut_Off_SOC
+	EPS_Discharge_Cut_Off_SOC
+	AC_Chg_Start_Volt
+	AC_Chg_End_Volt
+	AC_Chg_Start_SOC
+	AC_Chg_End_SOC
+	AC_Chg_Bat_Curr
+	On_Grid_EOD_Volt
+	Stop_Discharge_Volt
+	Quick_Charge_Minute
+	EPS_Enable
+	AC_Charge_Enable
+	Forced_Dischg_Enable
+	Forced_Chg_Enable
+	Feed_In_Grid_Enable
+	Grid_Peak_Shaving_Enable
+	Gen_Peak_Shaving_Enable
+	Smart_Load_Enable
+	Quick_Charge_Enable
+	AC_Charge_Type
+	Gen_Quick_Start
+	Gen_Cool_Down_Time
 )
 
 const (
@@ -170,6 +221,7 @@ const (
 	Switch
 	Number
 	Text
+	BinarySensor // binary_sensor
 )
 
 type Register struct {
@@ -185,10 +237,12 @@ type Register struct {
 	StateClass     string
 	DeviceClass    string
 	Pattern        string
-	Unit           string
-	Min            int
-	Max            int
-	Step           float32
+	// BitMask selects part of a hold register. Zero means the whole register.
+	BitMask uint16
+	Unit    string
+	Min     int
+	Max     int
+	Step    float32
 }
 
 func (r *Register) ToJson(id int, device Device, namespace, datalogger string) RegisterJson {
@@ -196,14 +250,16 @@ func (r *Register) ToJson(id int, device Device, namespace, datalogger string) R
 	if r.RegisterType == Hold {
 		if r.Writeable {
 			commandTopic = fmt.Sprintf("%s/cmd/%s/set/hold/%v", namespace, datalogger, HoldRegisterToIDMap[HoldRegister(id)])
+			if r.BitMask != 0 {
+				commandTopic += "/" + strings.ToLower(r.ShortName)
+			}
 		}
-
 	}
 	idName := strings.ToLower(r.RegisterHAKey)
 	if idName == "" {
 		idName = strings.ToLower(r.ShortName)
 	}
-	return RegisterJson{
+	js := RegisterJson{
 		UniqueID:          fmt.Sprintf("%s_%s", device.Name, idName),
 		Device:            device,
 		Name:              r.Name,
@@ -214,10 +270,49 @@ func (r *Register) ToJson(id int, device Device, namespace, datalogger string) R
 		DeviceClass:       r.DeviceClass,
 		ValueTemplate:     "",
 		UnitOfMeasurement: r.Unit,
-		Min:               float32(r.Min) * r.Multiplier,
-		Max:               float32(r.Max) * r.Multiplier,
 		Step:              r.Step * r.Multiplier,
 	}
+	switch r.DiscoveryType() {
+	case Number:
+		// Always send min and max: Home Assistant defaults min to 1, so an
+		// omitted 0 would make a range starting at 0 unusable.
+		if r.Min != 0 || r.Max != 0 {
+			lo, hi := float32(r.Min)*r.Multiplier, float32(r.Max)*r.Multiplier
+			js.Min, js.Max = &lo, &hi
+		}
+	case Switch:
+		js.PayloadOn, js.PayloadOff = "1", "0"
+		js.StateOn, js.StateOff = "1", "0"
+	case BinarySensor:
+		js.PayloadOn, js.PayloadOff = "1", "0"
+	}
+	return js
+}
+
+// DiscoveryType is the Home Assistant component the register is announced
+// as. Settings that can't be written are announced as sensors, because Home
+// Assistant rejects number and switch entities without a command topic.
+func (r *Register) DiscoveryType() HomeAssistantType {
+	if !r.Writeable && (r.HomeAssistantType == Number || r.HomeAssistantType == Switch) {
+		return Sensor
+	}
+	return r.HomeAssistantType
+}
+
+// FieldValue extracts this register's value from a raw hold register.
+func (r *Register) FieldValue(raw uint16) uint16 {
+	if r.BitMask == 0 {
+		return raw
+	}
+	return (raw & r.BitMask) >> bits.TrailingZeros16(r.BitMask)
+}
+
+// SetField returns raw with this register's field set to value.
+func (r *Register) SetField(raw, value uint16) uint16 {
+	if r.BitMask == 0 {
+		return value
+	}
+	return raw&^r.BitMask | (value<<bits.TrailingZeros16(r.BitMask))&r.BitMask
 }
 
 type RegisterJson struct {
@@ -230,12 +325,16 @@ type RegisterJson struct {
 	StateClass        string            `json:"state_class,omitempty"`
 	DeviceClass       string            `json:"device_class,omitempty"`
 	ValueTemplate     string            `json:"value_template,omitempty"`
-	UnitOfMeasurement string            `json:"unit_of_measurement"`
+	UnitOfMeasurement string            `json:"unit_of_measurement,omitempty"`
 	Availability      map[string]string `json:"availability,omitempty"`
-	Min               float32           `json:"min,omitempty"`
-	Max               float32           `json:"max,omitempty"`
+	Min               *float32          `json:"min,omitempty"`
+	Max               *float32          `json:"max,omitempty"`
 	Step              float32           `json:"step,omitempty"`
 	Pattern           string            `json:"pattern,omitempty"`
+	PayloadOn         string            `json:"payload_on,omitempty"`
+	PayloadOff        string            `json:"payload_off,omitempty"`
+	StateOn           string            `json:"state_on,omitempty"`
+	StateOff          string            `json:"state_off,omitempty"`
 }
 
 type Device struct {
@@ -255,29 +354,78 @@ var HoldIDToRegisterMap = map[int]HoldRegister{
 	27:  Grid_Freq_Conn_Low,
 	28:  Grid_Freq_Conn_High,
 	64:  Charge_Power_Percent_CMD,
+	65:  Discharge_Power_Percent_CMD,
+	66:  AC_Charge_Power_CMD,
+	67:  AC_Charge_SOC_Limit,
+	82:  Forced_Dischg_Power_CMD,
+	83:  Forced_Dischg_SOC_Limit,
+	101: Charge_Rate,
+	102: Discharge_Rate,
+	105: Discharge_Cut_Off_SOC,
+	125: EPS_Discharge_Cut_Off_SOC,
+	158: AC_Chg_Start_Volt,
+	159: AC_Chg_End_Volt,
+	160: AC_Chg_Start_SOC,
+	161: AC_Chg_End_SOC,
+	168: AC_Chg_Bat_Curr,
+	169: On_Grid_EOD_Volt,
 	194: Gen_Chg_Start_Volt,
 	195: Gen_Chg_End_Volt,
 	196: Gen_Chg_Start_SOC,
 	197: Gen_Chg_End_SOC,
 	198: Max_Gen_Chg_Bat_Curr,
+	202: Stop_Discharge_Volt,
+	234: Quick_Charge_Minute,
+	237: Gen_Cool_Down_Time,
+	177: Gen_Rate_power,
 }
 
 var HoldRegisterToIDMap = map[HoldRegister]int{
-	Language:                 16,
-	PV_Input_Model:           20,
-	Start_PV_Volt:            22,
-	Connect_Time:             23,
-	Reconnect_Time:           24,
-	Grid_Volt_Conn_Low:       25,
-	Grid_Volt_Conn_High:      26,
-	Grid_Freq_Conn_Low:       27,
-	Grid_Freq_Conn_High:      28,
-	Charge_Power_Percent_CMD: 64,
-	Gen_Chg_Start_Volt:       194,
-	Gen_Chg_End_Volt:         195,
-	Gen_Chg_Start_SOC:        196,
-	Gen_Chg_End_SOC:          197,
-	Max_Gen_Chg_Bat_Curr:     198,
+	Language:                    16,
+	PV_Input_Model:              20,
+	Start_PV_Volt:               22,
+	Connect_Time:                23,
+	Reconnect_Time:              24,
+	Grid_Volt_Conn_Low:          25,
+	Grid_Volt_Conn_High:         26,
+	Grid_Freq_Conn_Low:          27,
+	Grid_Freq_Conn_High:         28,
+	Charge_Power_Percent_CMD:    64,
+	Gen_Chg_Start_Volt:          194,
+	Gen_Chg_End_Volt:            195,
+	Gen_Chg_Start_SOC:           196,
+	Gen_Chg_End_SOC:             197,
+	Max_Gen_Chg_Bat_Curr:        198,
+	Gen_Rate_power:              177,
+	Discharge_Power_Percent_CMD: 65,
+	AC_Charge_Power_CMD:         66,
+	AC_Charge_SOC_Limit:         67,
+	Forced_Dischg_Power_CMD:     82,
+	Forced_Dischg_SOC_Limit:     83,
+	Charge_Rate:                 101,
+	Discharge_Rate:              102,
+	Discharge_Cut_Off_SOC:       105,
+	EPS_Discharge_Cut_Off_SOC:   125,
+	AC_Chg_Start_Volt:           158,
+	AC_Chg_End_Volt:             159,
+	AC_Chg_Start_SOC:            160,
+	AC_Chg_End_SOC:              161,
+	AC_Chg_Bat_Curr:             168,
+	On_Grid_EOD_Volt:            169,
+	Stop_Discharge_Volt:         202,
+	Quick_Charge_Minute:         234,
+	EPS_Enable:                  21,
+	AC_Charge_Enable:            21,
+	Forced_Dischg_Enable:        21,
+	Forced_Chg_Enable:           21,
+	Feed_In_Grid_Enable:         21,
+	Grid_Peak_Shaving_Enable:    179,
+	Gen_Peak_Shaving_Enable:     179,
+	Smart_Load_Enable:           179,
+	Quick_Charge_Enable:         233,
+	AC_Charge_Type:              120,
+	Gen_Quick_Start:             110,
+	Gen_Cool_Down_Time:          237,
 }
 
 // HoldRegisters are settings that can be changed on the inverter
@@ -302,6 +450,11 @@ var HoldRegisters = map[HoldRegister]Register{
 		Name:              "Charging power percentage setting",
 		HomeAssistantType: Number,
 		Multiplier:        1,
+		Unit:              "%",
+		Min:               0,
+		Max:               100,
+		Step:              1,
+		Writeable:         true,
 	},
 	Start_PV_Volt: {
 		RegisterType:      Hold,
@@ -381,6 +534,376 @@ var HoldRegisters = map[HoldRegister]Register{
 		Unit:              "%",
 		Min:               20,
 		Max:               100,
+		Step:              1,
+		Writeable:         true,
+	},
+	Discharge_Power_Percent_CMD: {
+		RegisterType:      Hold,
+		ShortName:         Discharge_Power_Percent_CMD.String(),
+		Name:              "Discharging power percentage setting",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		Unit:              "%",
+		Min:               0,
+		Max:               100,
+		Step:              1,
+		Writeable:         true,
+	},
+	AC_Charge_Power_CMD: {
+		RegisterType:      Hold,
+		ShortName:         AC_Charge_Power_CMD.String(),
+		Name:              "AC Charge Power",
+		HomeAssistantType: Number,
+		Multiplier:        0.1,
+		Unit:              "kW",
+		Min:               0,
+		Max:               120,
+		Step:              1,
+		Writeable:         true,
+	},
+	AC_Charge_SOC_Limit: {
+		RegisterType:      Hold,
+		ShortName:         AC_Charge_SOC_Limit.String(),
+		Name:              "AC Charge SOC Limit",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		Unit:              "%",
+		Min:               0,
+		Max:               101,
+		Step:              1,
+		Writeable:         true,
+	},
+	Forced_Dischg_Power_CMD: {
+		RegisterType:      Hold,
+		ShortName:         Forced_Dischg_Power_CMD.String(),
+		Name:              "Forced Discharge Power",
+		HomeAssistantType: Number,
+		Multiplier:        0.1,
+		Unit:              "kW",
+		Min:               0,
+		Max:               120,
+		Step:              1,
+		Writeable:         true,
+	},
+	Forced_Dischg_SOC_Limit: {
+		RegisterType:      Hold,
+		ShortName:         Forced_Dischg_SOC_Limit.String(),
+		Name:              "Forced Discharge SOC Limit",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		Unit:              "%",
+		Min:               0,
+		Max:               100,
+		Step:              1,
+		Writeable:         true,
+	},
+	Charge_Rate: {
+		RegisterType:      Hold,
+		ShortName:         Charge_Rate.String(),
+		Name:              "Battery Charge Current Limit",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		Unit:              "A",
+		Min:               0,
+		Max:               250,
+		Step:              1,
+		Writeable:         true,
+	},
+	Discharge_Rate: {
+		RegisterType:      Hold,
+		ShortName:         Discharge_Rate.String(),
+		Name:              "Battery Discharge Current Limit",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		Unit:              "A",
+		Min:               0,
+		Max:               250,
+		Step:              1,
+		Writeable:         true,
+	},
+	Discharge_Cut_Off_SOC: {
+		RegisterType:      Hold,
+		ShortName:         Discharge_Cut_Off_SOC.String(),
+		Name:              "On-Grid Discharge Cut-Off SOC",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		Unit:              "%",
+		Min:               10,
+		Max:               100,
+		Step:              1,
+		Writeable:         true,
+	},
+	EPS_Discharge_Cut_Off_SOC: {
+		RegisterType:      Hold,
+		ShortName:         EPS_Discharge_Cut_Off_SOC.String(),
+		Name:              "Off-Grid Discharge Cut-Off SOC",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		Unit:              "%",
+		Min:               0,
+		Max:               100,
+		Step:              1,
+		Writeable:         true,
+	},
+	AC_Chg_Start_Volt: {
+		RegisterType:      Hold,
+		ShortName:         AC_Chg_Start_Volt.String(),
+		Name:              "AC Charging Start Battery Voltage",
+		HomeAssistantType: Number,
+		Multiplier:        0.1,
+		Unit:              "V",
+		Min:               384,
+		Max:               520,
+		Step:              1,
+		Writeable:         true,
+	},
+	AC_Chg_End_Volt: {
+		RegisterType:      Hold,
+		ShortName:         AC_Chg_End_Volt.String(),
+		Name:              "AC Charging End Battery Voltage",
+		HomeAssistantType: Number,
+		Multiplier:        0.1,
+		Unit:              "V",
+		Min:               480,
+		Max:               590,
+		Step:              1,
+		Writeable:         true,
+	},
+	AC_Chg_Start_SOC: {
+		RegisterType:      Hold,
+		ShortName:         AC_Chg_Start_SOC.String(),
+		Name:              "AC Charging Start Battery SOC",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		Unit:              "%",
+		Min:               0,
+		Max:               90,
+		Step:              1,
+		Writeable:         true,
+	},
+	AC_Chg_End_SOC: {
+		RegisterType:      Hold,
+		ShortName:         AC_Chg_End_SOC.String(),
+		Name:              "AC Charging End Battery SOC",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		Unit:              "%",
+		Min:               0,
+		Max:               100,
+		Step:              1,
+		Writeable:         true,
+	},
+	AC_Chg_Bat_Curr: {
+		RegisterType:      Hold,
+		ShortName:         AC_Chg_Bat_Curr.String(),
+		Name:              "AC Charge Battery Current Limit",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		Unit:              "A",
+		Min:               0,
+		Max:               250,
+		Step:              1,
+		Writeable:         true,
+	},
+	On_Grid_EOD_Volt: {
+		RegisterType:      Hold,
+		ShortName:         On_Grid_EOD_Volt.String(),
+		Name:              "On-Grid End of Discharge Voltage",
+		HomeAssistantType: Number,
+		Multiplier:        0.1,
+		Unit:              "V",
+		Min:               400,
+		Max:               560,
+		Step:              1,
+		Writeable:         true,
+	},
+	Stop_Discharge_Volt: {
+		RegisterType:      Hold,
+		ShortName:         Stop_Discharge_Volt.String(),
+		Name:              "Stop Discharge Voltage",
+		HomeAssistantType: Number,
+		Multiplier:        0.1,
+		Unit:              "V",
+		Min:               400,
+		Max:               560,
+		Step:              1,
+		Writeable:         true,
+	},
+	Quick_Charge_Minute: {
+		RegisterType:      Hold,
+		ShortName:         Quick_Charge_Minute.String(),
+		Name:              "Quick Charge Time",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		Unit:              "min",
+		Min:               0,
+		Max:               1440,
+		Step:              1,
+		Writeable:         true,
+	},
+	Max_Gen_Chg_Bat_Curr: {
+		RegisterType:      Hold,
+		ShortName:         Max_Gen_Chg_Bat_Curr.String(),
+		Name:              "Generator Charge Battery Current Limit",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		Unit:              "A",
+		Min:               0,
+		Max:               250,
+		Step:              1,
+		Writeable:         true,
+	},
+	// Generator rated power is in 100 W units (raw 120 = 12.0 kW).
+	Gen_Rate_power: {
+		RegisterType:      Hold,
+		ShortName:         Gen_Rate_power.String(),
+		Name:              "Generator Rated Power",
+		HomeAssistantType: Number,
+		Multiplier:        0.1,
+		Unit:              "kW",
+		Min:               0,
+		Max:               255,
+		Step:              1,
+		Writeable:         true,
+	},
+	EPS_Enable: {
+		RegisterType:      Hold,
+		ShortName:         EPS_Enable.String(),
+		Name:              "EPS (Backup) Enable",
+		HomeAssistantType: Switch,
+		Multiplier:        1,
+		BitMask:           0x1,
+		Min:               0,
+		Max:               1,
+		Writeable:         true,
+	},
+	AC_Charge_Enable: {
+		RegisterType:      Hold,
+		ShortName:         AC_Charge_Enable.String(),
+		Name:              "AC Charge Enable",
+		HomeAssistantType: Switch,
+		Multiplier:        1,
+		BitMask:           0x80,
+		Min:               0,
+		Max:               1,
+		Writeable:         true,
+	},
+	Forced_Dischg_Enable: {
+		RegisterType:      Hold,
+		ShortName:         Forced_Dischg_Enable.String(),
+		Name:              "Forced Discharge Enable",
+		HomeAssistantType: Switch,
+		Multiplier:        1,
+		BitMask:           0x400,
+		Min:               0,
+		Max:               1,
+		Writeable:         true,
+	},
+	Forced_Chg_Enable: {
+		RegisterType:      Hold,
+		ShortName:         Forced_Chg_Enable.String(),
+		Name:              "Forced Charge Enable",
+		HomeAssistantType: Switch,
+		Multiplier:        1,
+		BitMask:           0x800,
+		Min:               0,
+		Max:               1,
+		Writeable:         true,
+	},
+	Feed_In_Grid_Enable: {
+		RegisterType:      Hold,
+		ShortName:         Feed_In_Grid_Enable.String(),
+		Name:              "Feed-In Grid Enable",
+		HomeAssistantType: Switch,
+		Multiplier:        1,
+		BitMask:           0x8000,
+		Min:               0,
+		Max:               1,
+		Writeable:         true,
+	},
+	Grid_Peak_Shaving_Enable: {
+		RegisterType:      Hold,
+		ShortName:         Grid_Peak_Shaving_Enable.String(),
+		Name:              "Grid Peak Shaving Enable",
+		HomeAssistantType: Switch,
+		Multiplier:        1,
+		BitMask:           0x80,
+		Min:               0,
+		Max:               1,
+		Writeable:         true,
+	},
+	Gen_Peak_Shaving_Enable: {
+		RegisterType:      Hold,
+		ShortName:         Gen_Peak_Shaving_Enable.String(),
+		Name:              "Generator Peak Shaving Enable",
+		HomeAssistantType: Switch,
+		Multiplier:        1,
+		BitMask:           0x100,
+		Min:               0,
+		Max:               1,
+		Writeable:         true,
+	},
+	Smart_Load_Enable: {
+		RegisterType:      Hold,
+		ShortName:         Smart_Load_Enable.String(),
+		Name:              "Smart Load Enable",
+		HomeAssistantType: Switch,
+		Multiplier:        1,
+		BitMask:           0x2000,
+		Min:               0,
+		Max:               1,
+		Writeable:         true,
+	},
+	Quick_Charge_Enable: {
+		RegisterType:      Hold,
+		ShortName:         Quick_Charge_Enable.String(),
+		Name:              "Quick Charge Enable",
+		HomeAssistantType: Switch,
+		Multiplier:        1,
+		BitMask:           0x1,
+		Min:               0,
+		Max:               1,
+		Writeable:         true,
+	},
+	// Gen_Cool_Down_Time is how long the inverter keeps the generator dry
+	// contact closed after a stop, in 0.1 minute units.
+	Gen_Cool_Down_Time: {
+		RegisterType:      Hold,
+		ShortName:         Gen_Cool_Down_Time.String(),
+		Name:              "Generator Cool Down Time",
+		HomeAssistantType: Number,
+		Multiplier:        0.1,
+		Unit:              "min",
+		Min:               1,
+		Max:               255,
+		Step:              1,
+		Writeable:         true,
+	},
+	// Gen_Quick_Start is bit 7 of register 110. The EG4 website's generator
+	// quick start sets it, the inverter closes its generator dry contact and
+	// runs the generator for about 20 minutes. Some projects call this bit
+	// the buzzer enable, which is wrong on an 18kPV.
+	Gen_Quick_Start: {
+		RegisterType:      Hold,
+		ShortName:         Gen_Quick_Start.String(),
+		Name:              "Generator Quick Start",
+		HomeAssistantType: Switch,
+		Multiplier:        1,
+		BitMask:           0x80,
+		Min:               0,
+		Max:               1,
+		Writeable:         true,
+	},
+	// AC_Charge_Type is bits 1-3 of register 120.
+	AC_Charge_Type: {
+		RegisterType:      Hold,
+		ShortName:         AC_Charge_Type.String(),
+		Name:              "AC Charge Type (0=Time 1=SOC/Volt 2=Time+SOC/Volt)",
+		HomeAssistantType: Number,
+		Multiplier:        1,
+		BitMask:           0xe,
+		Min:               0,
+		Max:               2,
 		Step:              1,
 		Writeable:         true,
 	},
@@ -661,6 +1184,180 @@ var InputRegisters = map[InputRegister]Register{
 		DeviceClass:  "power",
 		Multiplier:   1,
 		Unit:         "W",
+	},
+	// P_LOAD (input 170) is load passed through from grid or generator. It is
+	// about 0 on battery, where the load shows up in P_EPS instead.
+	P_LOAD: {
+		RegisterType: Input,
+		ShortName:    P_LOAD.String(),
+		Name:         "Load Power",
+		StateClass:   "measurement",
+		DeviceClass:  "power",
+		Multiplier:   1,
+		Unit:         "W",
+	},
+	E_LOAD_DAY: {
+		RegisterType: Input,
+		ShortName:    E_LOAD_DAY.String(),
+		Name:         "Load Energy (Today)",
+		StateClass:   "total_increasing",
+		DeviceClass:  "energy",
+		Multiplier:   0.1,
+		Unit:         "kWh",
+	},
+	E_LOAD_ALL: {
+		RegisterType: Input,
+		ShortName:    E_LOAD_ALL.String(),
+		Name:         "Load Energy (Total)",
+		StateClass:   "total_increasing",
+		DeviceClass:  "energy",
+		Multiplier:   0.1,
+		Unit:         "kWh",
+	},
+	CONSUMPTION_POWER: {
+		RegisterType: Input,
+		ShortName:    CONSUMPTION_POWER.String(),
+		Name:         "Consumption Power",
+		StateClass:   "measurement",
+		DeviceClass:  "power",
+		Multiplier:   1,
+		Unit:         "W",
+	},
+	// Per-leg values (inputs 193-204) for US split-phase models.
+	V_GRID_L1: {
+		RegisterType: Input,
+		ShortName:    V_GRID_L1.String(),
+		Name:         "Grid Voltage (L1)",
+		StateClass:   "measurement",
+		DeviceClass:  "voltage",
+		Multiplier:   0.1,
+		Unit:         "V",
+	},
+	V_GRID_L2: {
+		RegisterType: Input,
+		ShortName:    V_GRID_L2.String(),
+		Name:         "Grid Voltage (L2)",
+		StateClass:   "measurement",
+		DeviceClass:  "voltage",
+		Multiplier:   0.1,
+		Unit:         "V",
+	},
+	V_GEN_L1: {
+		RegisterType: Input,
+		ShortName:    V_GEN_L1.String(),
+		Name:         "Generator Voltage (L1)",
+		StateClass:   "measurement",
+		DeviceClass:  "voltage",
+		Multiplier:   0.1,
+		Unit:         "V",
+	},
+	V_GEN_L2: {
+		RegisterType: Input,
+		ShortName:    V_GEN_L2.String(),
+		Name:         "Generator Voltage (L2)",
+		StateClass:   "measurement",
+		DeviceClass:  "voltage",
+		Multiplier:   0.1,
+		Unit:         "V",
+	},
+	P_INV_L1: {
+		RegisterType: Input,
+		ShortName:    P_INV_L1.String(),
+		Name:         "Inverter Power (L1)",
+		StateClass:   "measurement",
+		DeviceClass:  "power",
+		Multiplier:   1,
+		Unit:         "W",
+	},
+	P_INV_L2: {
+		RegisterType: Input,
+		ShortName:    P_INV_L2.String(),
+		Name:         "Inverter Power (L2)",
+		StateClass:   "measurement",
+		DeviceClass:  "power",
+		Multiplier:   1,
+		Unit:         "W",
+	},
+	P_REC_L1: {
+		RegisterType: Input,
+		ShortName:    P_REC_L1.String(),
+		Name:         "Rectifier Power (L1)",
+		StateClass:   "measurement",
+		DeviceClass:  "power",
+		Multiplier:   1,
+		Unit:         "W",
+	},
+	P_REC_L2: {
+		RegisterType: Input,
+		ShortName:    P_REC_L2.String(),
+		Name:         "Rectifier Power (L2)",
+		StateClass:   "measurement",
+		DeviceClass:  "power",
+		Multiplier:   1,
+		Unit:         "W",
+	},
+	P_TO_GRID_L1: {
+		RegisterType: Input,
+		ShortName:    P_TO_GRID_L1.String(),
+		Name:         "Export Power to Grid (L1)",
+		StateClass:   "measurement",
+		DeviceClass:  "power",
+		Multiplier:   1,
+		Unit:         "W",
+	},
+	P_TO_GRID_L2: {
+		RegisterType: Input,
+		ShortName:    P_TO_GRID_L2.String(),
+		Name:         "Export Power to Grid (L2)",
+		StateClass:   "measurement",
+		DeviceClass:  "power",
+		Multiplier:   1,
+		Unit:         "W",
+	},
+	P_TO_USER_L1: {
+		RegisterType: Input,
+		ShortName:    P_TO_USER_L1.String(),
+		Name:         "Import Power from Grid (L1)",
+		StateClass:   "measurement",
+		DeviceClass:  "power",
+		Multiplier:   1,
+		Unit:         "W",
+	},
+	P_TO_USER_L2: {
+		RegisterType: Input,
+		ShortName:    P_TO_USER_L2.String(),
+		Name:         "Import Power from Grid (L2)",
+		StateClass:   "measurement",
+		DeviceClass:  "power",
+		Multiplier:   1,
+		Unit:         "W",
+	},
+	I_PV_1: {
+		RegisterType: Input,
+		ShortName:    I_PV_1.String(),
+		Name:         "PV Current (String 1)",
+		StateClass:   "measurement",
+		DeviceClass:  "current",
+		Multiplier:   0.01,
+		Unit:         "A",
+	},
+	I_PV_2: {
+		RegisterType: Input,
+		ShortName:    I_PV_2.String(),
+		Name:         "PV Current (String 2)",
+		StateClass:   "measurement",
+		DeviceClass:  "current",
+		Multiplier:   0.01,
+		Unit:         "A",
+	},
+	I_PV_3: {
+		RegisterType: Input,
+		ShortName:    I_PV_3.String(),
+		Name:         "PV Current (String 3)",
+		StateClass:   "measurement",
+		DeviceClass:  "current",
+		Multiplier:   0.01,
+		Unit:         "A",
 	},
 	E_PV_DAY: {
 		RegisterType:  Input,
@@ -1149,6 +1846,26 @@ var InputRegisters = map[InputRegister]Register{
 		EntityCategory: "diagnostic",
 		Multiplier:     1,
 	},
+	// GEN_COOL_DOWN is bit 2 of input 105: 1 after a generator stop while the
+	// inverter keeps the dry contact closed for the cool-down time.
+	GEN_COOL_DOWN: {
+		RegisterType:      Input,
+		ShortName:         GEN_COOL_DOWN.String(),
+		Name:              "Generator Cooling Down",
+		HomeAssistantType: BinarySensor,
+		DeviceClass:       "running",
+		Multiplier:        1,
+	},
+	// GEN_DRY_CONTACT is bit 3 of input 105: 1 while the inverter's generator
+	// start dry contact is closed.
+	GEN_DRY_CONTACT: {
+		RegisterType:      Input,
+		ShortName:         GEN_DRY_CONTACT.String(),
+		Name:              "Generator Dry Contact",
+		HomeAssistantType: BinarySensor,
+		DeviceClass:       "running",
+		Multiplier:        1,
+	},
 	CYCLE_CNT_BMS: {
 		RegisterType:   Input,
 		ShortName:      CYCLE_CNT_BMS.String(),
@@ -1162,7 +1879,7 @@ var InputRegisters = map[InputRegister]Register{
 		Name:         "Inverter Battery Voltage Sample",
 		StateClass:   "measurement",
 		DeviceClass:  "voltage",
-		Multiplier:   0.001,
+		Multiplier:   0.1,
 		Unit:         "V",
 	},
 	T1: {

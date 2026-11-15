@@ -52,7 +52,9 @@ type LXPConfig struct {
 	ReadTimeout              time.Duration `yaml:"read_timeout"`
 	ShortRead                time.Duration `yaml:"short_read"`
 	LongRead                 time.Duration `yaml:"long_read"`
-	HealthCheckDuration      time.Duration `yaml:"health_check_duration"`
+	// HoldRead is how often the holding (settings) registers are read. -1s disables.
+	HoldRead            time.Duration `yaml:"hold_read"`
+	HealthCheckDuration time.Duration `yaml:"health_check_duration"`
 	// CRCMode is "log" (default) or "drop"; see README.
 	CRCMode string `yaml:"crc_mode"`
 }
