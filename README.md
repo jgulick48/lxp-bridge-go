@@ -222,3 +222,8 @@ so each setting is never shown twice.
 
 ### Building
 Version information is injected with `-ldflags "-X main.version=<v> -X main.commit=<sha>"` and logged at startup.
+
+`make docker.push` builds the multi-arch image (linux/amd64, linux/arm64), pushes it as `<version>` and `latest`
+(the version defaults to the UTC time, e.g. `2026.11.15-0734`), then tags the commit with the same version and pushes
+the tag, so every image can be traced to its source. It refuses to start when tracked files have uncommitted changes
+or the tag already exists. `make git.tag VERSION=<v>` tags HEAD on its own.
