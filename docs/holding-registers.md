@@ -64,6 +64,7 @@ inverter screen or the EG4 app.
 
 | Register | Setting | Example |
 |---|---|---|
+| 12-14 | Inverter clock, **local time**, one little-endian uint16 each. 12: high byte month (1-12), low byte year - 2000. 13: high byte hour, low byte day. 14: high byte second, low byte minute. Written by `clock_sync` as a single function 0x10 write; see the README. | 0x0b1a, 0x170e, 0x2c35 = 2026-11-14 23:53:44 |
 | 21 bit 9 | Power on (turning this off shuts the inverter down) |  |
 | 21 other bits | Anti-islanding, neutral detect, GFCI, DCI, isolation detect, DRMS, LVRT |  |
 | 25-28 | Grid connection voltage and frequency limits | 2200, 2520, 5950, 6010 |

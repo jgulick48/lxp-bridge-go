@@ -57,6 +57,7 @@ type inverter struct {
 	mu      sync.Mutex
 	hold    map[uint16]uint16      // last raw value of each holding register
 	pending map[uint16]*fieldWrite // bit field changes waiting for a fresh read
+	clock   clockState
 }
 
 // fieldWrite is a change to part of a holding register. It is applied to the
@@ -169,7 +170,24 @@ func build(config models.Config, d deps) (*client, error) {
 		if err != nil {
 			return nil, fmt.Errorf("inverter %s: %w", modConfig.DataLog, err)
 		}
-		c.inverters[modConfig.DataLog] = &inverter{client: mc, config: modConfig, hold: map[uint16]uint16{}, pending: map[uint16]*fieldWrite{}}
+		cs := clockState{maxDrift: modConfig.ClockSync.MaxDrift}
+		if cs.maxDrift == 0 {
+			cs.maxDrift = defaultClockMaxDrift
+		}
+		if tz := modConfig.ClockSync.Timezone; tz != "" {
+			loc, err := time.LoadLocation(tz)
+			switch {
+			case err == nil:
+				cs.loc = loc
+			case modConfig.ClockSync.Enabled:
+				return nil, fmt.Errorf("inverter %s: invalid clock_sync timezone %q: %w", modConfig.DataLog, tz, err)
+			default:
+				logrus.Warnf("Inverter %s: ignoring invalid clock_sync timezone %q: %s", modConfig.DataLog, tz, err)
+			}
+		} else if modConfig.ClockSync.Enabled {
+			return nil, fmt.Errorf("inverter %s: clock_sync is enabled but clock_sync.timezone is not set (IANA name such as America/Denver)", modConfig.DataLog)
+		}
+		c.inverters[modConfig.DataLog] = &inverter{client: mc, config: modConfig, hold: map[uint16]uint16{}, pending: map[uint16]*fieldWrite{}, clock: cs}
 		c.order = append(c.order, modConfig.DataLog)
 	}
 	return c, nil
@@ -585,6 +603,10 @@ func (c *client) ReportHolding(dataLogger string, start uint16, values []uint16)
 		}
 		logrus.Infof("Writing register %d on %s: %d -> %d", addr, dataLogger, v, next)
 		inv.client.SendCommand(modbus.BuildPacket(inv.config.DataLog, inv.config.Serial, 1, 0x6, addr, modbus.GetBytesForUInt16(next)...))
+	}
+	if start <= clockRegStart && int(start)+len(values) > clockRegStart+clockRegCount-1 {
+		off := clockRegStart - int(start)
+		c.checkClock(inv, now, values[off:off+clockRegCount])
 	}
 }
 
