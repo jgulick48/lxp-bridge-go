@@ -141,7 +141,11 @@ func build(config models.Config, d deps) (*client, error) {
 	}
 	c.started = c.now()
 	if c.mqtt == nil {
-		c.mqtt = mqtt.NewClient(config.MQTTConfig, false, c, c.onMQTTConnect)
+		m, err := mqtt.NewClient(config.MQTTConfig, false, c, c.onMQTTConnect)
+		if err != nil {
+			return nil, err
+		}
+		c.mqtt = m
 	}
 	for _, modConfig := range config.Inverters {
 		if !modConfig.Enabled {

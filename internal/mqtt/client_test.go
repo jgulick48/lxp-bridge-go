@@ -9,7 +9,7 @@ import (
 )
 
 func TestDisabledClientIsSafeNoop(t *testing.T) {
-	c := NewClient(models.MQTTConfig{}, false, &BaseMessageCallback{}, func() { t.Error("onConnect must not fire") })
+	c, _ := NewClient(models.MQTTConfig{}, false, &BaseMessageCallback{}, func() { t.Error("onConnect must not fire") })
 	assert.False(t, c.IsEnabled())
 	done := make(chan struct{})
 	go func() {
@@ -33,7 +33,8 @@ func (r *recordingCallback) HandleCommand(topic string, _ []byte) { r.topics = a
 
 func TestCommandRouting(t *testing.T) {
 	cb := &recordingCallback{}
-	c := NewClient(models.MQTTConfig{Host: "x"}, false, cb, nil).(*client)
+	ci, _ := NewClient(models.MQTTConfig{Host: "x"}, false, cb, nil)
+	c := ci.(*client)
 	c.ProcessData("lxp/cmd/DL/set/hold/196", []byte("20"))
 	c.ProcessData("lxp/sensor/DL/read/power1", []byte("1"))
 	c.ProcessData("lxp/cmd/short", []byte("1"))
@@ -42,7 +43,7 @@ func TestCommandRouting(t *testing.T) {
 
 func TestUnreachableBrokerDoesNotPanicOrBlock(t *testing.T) {
 	// Port 1 on localhost: connection refused. Connect must return immediately.
-	c := NewClient(models.MQTTConfig{Host: "127.0.0.1", Port: 1, ClientName: "t"}, false, &BaseMessageCallback{}, nil)
+	c, _ := NewClient(models.MQTTConfig{Host: "127.0.0.1", Port: 1, ClientName: "t"}, false, &BaseMessageCallback{}, nil)
 	start := time.Now()
 	c.Connect()
 	c.SubMultiple([]string{"lxp/cmd/DL/set/#"})

@@ -1,8 +1,8 @@
 package mqtt
 
 import (
+	"crypto/tls"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -55,13 +55,24 @@ type client struct {
 	mux        sync.Mutex
 	topics     []string
 	closeOnce  sync.Once
+	tlsConfig  *tls.Config
 }
 
 // NewClient creates a client. When config.Host is empty the returned client is
 // a disabled no-op. onConnect (may be nil) runs after every successful
-// (re)connection, once command topics have been resubscribed.
-func NewClient(config models.MQTTConfig, debug bool, callback MessageCallback, onConnect func()) Client {
-	return &client{config: config, debug: debug, callback: callback, onConnect: onConnect}
+// (re)connection, once command topics have been resubscribed. It returns an
+// error when the TLS settings are invalid (only checked when MQTT and TLS are
+// both enabled).
+func NewClient(config models.MQTTConfig, debug bool, callback MessageCallback, onConnect func()) (Client, error) {
+	c := &client{config: config, debug: debug, callback: callback, onConnect: onConnect}
+	if config.Host != "" && config.TLS.Enabled {
+		cfg, err := buildTLSConfig(config.TLS, config.Host)
+		if err != nil {
+			return nil, err
+		}
+		c.tlsConfig = cfg
+	}
+	return c, nil
 }
 
 func (c *client) IsEnabled() bool {
@@ -72,10 +83,25 @@ func (c *client) Connect() {
 	if !c.IsEnabled() {
 		return
 	}
-	broker := fmt.Sprintf("tcp://%s:%d", c.config.Host, c.config.Port)
-	logrus.Infof("Connecting to %s", broker)
+	broker := brokerURL(c.config)
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(broker)
+	if c.tlsConfig != nil {
+		opts.SetTLSConfig(c.tlsConfig)
+		mode := "TLS"
+		if len(c.tlsConfig.Certificates) > 0 {
+			mode = "mutual TLS"
+		}
+		logrus.Infof("Connecting to %s (%s)", broker, mode)
+		if c.tlsConfig.InsecureSkipVerify {
+			logrus.Warn("mqtt.tls.insecure_skip_verify is true: the broker certificate is NOT verified")
+		}
+	} else {
+		logrus.Infof("Connecting to %s (no TLS)", broker)
+		if plaintextCredentialsRisk(c.config) {
+			logrus.Warnf("MQTT username/password will be sent unencrypted to non-local host %s; enable mqtt.tls", c.config.Host)
+		}
+	}
 	opts.SetClientID(c.config.ClientName)
 	opts.SetUsername(c.config.Username)
 	opts.SetPassword(c.config.Password)
