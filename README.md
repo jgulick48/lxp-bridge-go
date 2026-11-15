@@ -56,8 +56,10 @@ inverters:
 mqtt:
   enabled: true
   host: 192.168.1.10
-  port: 1883
+  port: 1883               # default 1883, or 8883 when tls.enabled
   namespace: lxp
+  tls:
+    enabled: false
   homeassistant:
     enabled: true
     prefix: homeassistant
@@ -70,6 +72,19 @@ prometheus:
 ### Configuration keys
 Top level: `loglevel` (`debug|info|warn|error`, default `info`; the `-logLevel` flag overrides it), `mqtt`, `statsd`, `prometheus`, `openEVSE`, `inverters`.
 Flags: `-configFile`, `-logLevel`, `-healthAddr` (default `0.0.0.0:8080`).
+
+MQTT (`mqtt`): leave `host` empty to disable. `port` defaults to 1883, or 8883 when TLS is enabled.
+
+`mqtt.tls` encrypts the broker connection so credentials are not sent in plain text (the URL becomes `ssl://host:port`):
+* `enabled`: default `false`.
+* `ca_file`: PEM CA bundle to trust; empty uses the system roots. The Docker image (distroless) includes the system CA bundle.
+* `cert_file`, `key_file`: client certificate and key (PEM) for mutual TLS. Set both or neither.
+* `server_name`: name checked against the broker certificate (default: `mqtt.host`).
+* `insecure_skip_verify`: skip certificate verification (default `false`; logs a warning, only for testing).
+
+TLS 1.2 is the minimum. Invalid TLS settings (unreadable or empty `ca_file`, only one of cert/key) fail startup. A warning
+is logged when TLS is off, a username or password is set and `host` is a public IP address. In Docker, mounted cert and key
+files must be readable by uid 65532 (the `nonroot` user).
 
 Per inverter (`inverters[]`):
 * `enabled`: inverters that are not enabled are skipped.

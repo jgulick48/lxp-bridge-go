@@ -25,6 +25,8 @@ Requests are queued (32 deep) and sent one per second. Polls are skipped while t
 
 ## MQTT topics
 
+The broker connection is plain TCP by default and can use TLS or mutual TLS via `mqtt.tls` (see the README).
+
 `<namespace>` is `mqtt.namespace` (default `lxp`) and `<datalog>` is the datalogger serial.
 
 | Topic | Direction | Payload |

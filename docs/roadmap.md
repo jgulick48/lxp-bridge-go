@@ -15,10 +15,6 @@ updated to "House Load".
 
 **Next step:** confirm `p_load` against `p_gen - p_rec` during a generator run (see [open questions](open-questions.md)).
 
-### MQTT over TLS
-Add `mqtt.tls` options (CA file, client certificate, `insecure_skip_verify`) so brokers outside the local network can
-be used without sending the username and password in plain text.
-
 ### Inverter clock sync (in progress)
 On connect, compare the inverter clock (holding 12-14) with the host clock and correct it when it drifts past a
 configurable limit. Time-window charging depends on the inverter clock.
@@ -33,6 +29,10 @@ working.
 A `mqtt.read_only` option that rejects every write command, for monitoring-only installs.
 
 ## Resolved
+
+### MQTT over TLS
+`mqtt.tls` (`enabled`, `ca_file`, `cert_file`/`key_file` for mutual TLS, `server_name`, `insecure_skip_verify`) secures the
+broker connection (`ssl://`, port defaults to 8883). Bad TLS settings fail startup. See the README.
 
 ### Charge and discharge time windows
 Holding registers 68-73 (AC charge windows 1-3), 76-81 (forced charge) and 84-89 (forced discharge) are exposed as

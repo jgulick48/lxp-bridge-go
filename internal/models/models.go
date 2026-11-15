@@ -22,6 +22,17 @@ type MQTTConfig struct {
 	Password      string              `yaml:"password"`
 	NameSpace     string              `yaml:"namespace"`
 	HomeAssistant HomeAssistantConfig `yaml:"homeassistant"`
+	TLS           MQTTTLSConfig       `yaml:"tls"`
+}
+
+// MQTTTLSConfig configures TLS (and mutual TLS) for the broker connection.
+type MQTTTLSConfig struct {
+	Enabled            bool   `yaml:"enabled"`
+	CAFile             string `yaml:"ca_file"`
+	CertFile           string `yaml:"cert_file"`
+	KeyFile            string `yaml:"key_file"`
+	ServerName         string `yaml:"server_name"`
+	InsecureSkipVerify bool   `yaml:"insecure_skip_verify"`
 }
 
 type OpenEVSEConfig struct {
