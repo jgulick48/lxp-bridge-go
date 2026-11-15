@@ -328,6 +328,25 @@ func (r *Register) DiscoveryType() HomeAssistantType {
 	return r.HomeAssistantType
 }
 
+// AsReadOnly returns the register as it is announced to Home Assistant when
+// the bridge is read-only: controllable entities become their read-only
+// equivalent (number -> sensor, switch -> binary sensor, text -> sensor) and
+// no command topic is published. Registers that were never writeable are
+// returned unchanged.
+func (r Register) AsReadOnly() Register {
+	if !r.Writeable {
+		return r
+	}
+	r.Writeable = false
+	switch r.HomeAssistantType {
+	case Number, Text:
+		r.HomeAssistantType = Sensor
+	case Switch:
+		r.HomeAssistantType = BinarySensor
+	}
+	return r
+}
+
 // FieldValue extracts this register's value from a raw hold register.
 func (r *Register) FieldValue(raw uint16) uint16 {
 	if r.BitMask == 0 {

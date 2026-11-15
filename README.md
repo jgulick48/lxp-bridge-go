@@ -70,7 +70,7 @@ prometheus:
 ```
 
 ### Configuration keys
-Top level: `loglevel` (`debug|info|warn|error`, default `info`; the `-logLevel` flag overrides it), `mqtt`, `statsd`, `prometheus`, `openEVSE`, `inverters`.
+Top level: `loglevel` (`debug|info|warn|error`, default `info`; the `-logLevel` flag overrides it), `read_only` (default `false`, see [Read-only mode](#read-only-mode)), `mqtt`, `statsd`, `prometheus`, `openEVSE`, `inverters`.
 Flags: `-configFile`, `-logLevel`, `-healthAddr` (default `0.0.0.0:8080`).
 
 MQTT (`mqtt`): leave `host` empty to disable. `port` defaults to 1883, or 8883 when TLS is enabled.
@@ -165,6 +165,15 @@ bridge reads the register first and changes only those bits, so other settings i
 Only the settings marked writable in [holding registers](docs/holding-registers.md) are accepted, and only inside their
 range. Everything else is rejected and logged at warn; accepted writes are logged at info. Home Assistant uses these
 topics automatically through discovery.
+
+### Read-only mode
+Set `read_only: true` at the top level for a monitoring-only install. The bridge then never writes to any inverter:
+MQTT commands are not subscribed to (and are rejected if one arrives anyway), bit-field writes are never queued, and
+clock sync is disabled (a warning is logged if `clock_sync.enabled` is set; the drift metric still works). Polling
+reads are unaffected. Home Assistant discovery announces sensors and binary sensors only, with no command topics, and
+the bridge clears the retained config of previously announced numbers, switches and text entities so the stale
+controls disappear from Home Assistant. Turning `read_only` off again clears those read-only sensors in the same way,
+so each setting is never shown twice.
 
 ### Building
 Version information is injected with `-ldflags "-X main.version=<v> -X main.commit=<sha>"` and logged at startup.

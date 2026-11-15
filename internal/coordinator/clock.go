@@ -109,7 +109,7 @@ func (c *client) checkClock(inv *inverter, now time.Time, regs []uint16) {
 		cs.failures = 0
 	}
 
-	if !inv.config.ClockSync.Enabled || cs.gaveUp || inSync || cs.verifying {
+	if c.config.ReadOnly || !inv.config.ClockSync.Enabled || cs.gaveUp || inSync || cs.verifying {
 		return
 	}
 	if !cs.lastWrite.IsZero() && now.Sub(cs.lastWrite) < clockSyncInterval {
@@ -124,6 +124,6 @@ func (c *client) checkClock(inv *inverter, now time.Time, regs []uint16) {
 		logrus.Infof("Syncing invalid clock on %s -> %s", dl, target.Format(time.RFC3339))
 	}
 	vals := encodeClock(target)
-	inv.client.SendCommand(modbus.BuildWriteMulti(dl, inv.config.Serial, clockRegStart, vals[:]))
+	c.sendWrite(inv, modbus.BuildWriteMulti(dl, inv.config.Serial, clockRegStart, vals[:]), "clock registers 12-14")
 	inv.client.SendCommand(modbus.BuildPacket(dl, inv.config.Serial, 0, 0x3, 0, modbus.GetBytesForUInt16(40)...))
 }

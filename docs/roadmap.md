@@ -25,10 +25,11 @@ VictoriaMetrics), as an alternative to DogStatsD. This avoids statsd gauge quirk
 treated as deltas (#22). Keep the metric names (`<namespace>_<register>` with label `deploymentID`) so dashboards keep
 working.
 
-### Read-only mode
-A `mqtt.read_only` option that rejects every write command, for monitoring-only installs.
-
 ## Resolved
+
+### Read-only mode
+Top-level `read_only: true` (not `mqtt.read_only`, because clock sync also writes) blocks MQTT writes, bit-field writes
+and clock sync, and announces Home Assistant entities as sensors only. See the README.
 
 ### MQTT over TLS
 `mqtt.tls` (`enabled`, `ca_file`, `cert_file`/`key_file` for mutual TLS, `server_name`, `insecure_skip_verify`) secures the
