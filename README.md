@@ -32,7 +32,9 @@ More general guides are in the [Wiki](https://github.com/jgulick48/lxp-bridge-go
 - **Settings** from the holding registers, including AC and generator charging, discharge cut-offs, current limits,
   forced charge and discharge, peak shaving, smart load and quick charge. Most of them can be changed from MQTT or Home
   Assistant.
-- **Home Assistant discovery** for all of the above as sensors, binary sensors, numbers and switches.
+- **Charge and discharge time windows** (AC charge, forced charge, forced discharge; three each) as `HH:MM`
+  values that can be read and set from MQTT or Home Assistant.
+- **Home Assistant discovery** for all of the above as sensors, binary sensors, numbers, switches and text entities.
 
 ## Operations
 

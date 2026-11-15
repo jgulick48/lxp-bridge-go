@@ -53,15 +53,34 @@ func _() {
 	_ = x[AC_Charge_Type-42]
 	_ = x[Gen_Quick_Start-43]
 	_ = x[Gen_Cool_Down_Time-44]
+	_ = x[AC_Charge_Start_1-45]
+	_ = x[AC_Charge_End_1-46]
+	_ = x[AC_Charge_Start_2-47]
+	_ = x[AC_Charge_End_2-48]
+	_ = x[AC_Charge_Start_3-49]
+	_ = x[AC_Charge_End_3-50]
+	_ = x[Forced_Chg_Start_1-51]
+	_ = x[Forced_Chg_End_1-52]
+	_ = x[Forced_Chg_Start_2-53]
+	_ = x[Forced_Chg_End_2-54]
+	_ = x[Forced_Chg_Start_3-55]
+	_ = x[Forced_Chg_End_3-56]
+	_ = x[Forced_Dischg_Start_1-57]
+	_ = x[Forced_Dischg_End_1-58]
+	_ = x[Forced_Dischg_Start_2-59]
+	_ = x[Forced_Dischg_End_2-60]
+	_ = x[Forced_Dischg_Start_3-61]
+	_ = x[Forced_Dischg_End_3-62]
 }
 
-const _HoldRegister_name = "Charge_Power_Percent_CMDConnect_TimeGen_Chg_Start_VoltGen_Chg_End_VoltGen_Chg_Start_SOCGen_Chg_End_SOCGen_Rate_powerGrid_Volt_Conn_LowGrid_Volt_Conn_HighGrid_Freq_Conn_LowGrid_Freq_Conn_HighLanguageMax_Gen_Chg_Bat_CurrReconnect_TimeStart_PV_VoltPV_Input_ModelDischarge_Power_Percent_CMDAC_Charge_Power_CMDAC_Charge_SOC_LimitForced_Dischg_Power_CMDForced_Dischg_SOC_LimitCharge_RateDischarge_RateDischarge_Cut_Off_SOCEPS_Discharge_Cut_Off_SOCAC_Chg_Start_VoltAC_Chg_End_VoltAC_Chg_Start_SOCAC_Chg_End_SOCAC_Chg_Bat_CurrOn_Grid_EOD_VoltStop_Discharge_VoltQuick_Charge_MinuteEPS_EnableAC_Charge_EnableForced_Dischg_EnableForced_Chg_EnableFeed_In_Grid_EnableGrid_Peak_Shaving_EnableGen_Peak_Shaving_EnableSmart_Load_EnableQuick_Charge_EnableAC_Charge_TypeGen_Quick_StartGen_Cool_Down_Time"
+const _HoldRegister_name = "Charge_Power_Percent_CMDConnect_TimeGen_Chg_Start_VoltGen_Chg_End_VoltGen_Chg_Start_SOCGen_Chg_End_SOCGen_Rate_powerGrid_Volt_Conn_LowGrid_Volt_Conn_HighGrid_Freq_Conn_LowGrid_Freq_Conn_HighLanguageMax_Gen_Chg_Bat_CurrReconnect_TimeStart_PV_VoltPV_Input_ModelDischarge_Power_Percent_CMDAC_Charge_Power_CMDAC_Charge_SOC_LimitForced_Dischg_Power_CMDForced_Dischg_SOC_LimitCharge_RateDischarge_RateDischarge_Cut_Off_SOCEPS_Discharge_Cut_Off_SOCAC_Chg_Start_VoltAC_Chg_End_VoltAC_Chg_Start_SOCAC_Chg_End_SOCAC_Chg_Bat_CurrOn_Grid_EOD_VoltStop_Discharge_VoltQuick_Charge_MinuteEPS_EnableAC_Charge_EnableForced_Dischg_EnableForced_Chg_EnableFeed_In_Grid_EnableGrid_Peak_Shaving_EnableGen_Peak_Shaving_EnableSmart_Load_EnableQuick_Charge_EnableAC_Charge_TypeGen_Quick_StartGen_Cool_Down_TimeAC_Charge_Start_1AC_Charge_End_1AC_Charge_Start_2AC_Charge_End_2AC_Charge_Start_3AC_Charge_End_3Forced_Chg_Start_1Forced_Chg_End_1Forced_Chg_Start_2Forced_Chg_End_2Forced_Chg_Start_3Forced_Chg_End_3Forced_Dischg_Start_1Forced_Dischg_End_1Forced_Dischg_Start_2Forced_Dischg_End_2Forced_Dischg_Start_3Forced_Dischg_End_3"
 
-var _HoldRegister_index = [...]uint16{0, 24, 36, 54, 70, 87, 102, 116, 134, 153, 171, 190, 198, 218, 232, 245, 259, 286, 305, 324, 347, 370, 381, 395, 416, 441, 458, 473, 489, 503, 518, 534, 553, 572, 582, 598, 618, 635, 654, 678, 701, 718, 737, 751, 766, 784}
+var _HoldRegister_index = [...]uint16{0, 24, 36, 54, 70, 87, 102, 116, 134, 153, 171, 190, 198, 218, 232, 245, 259, 286, 305, 324, 347, 370, 381, 395, 416, 441, 458, 473, 489, 503, 518, 534, 553, 572, 582, 598, 618, 635, 654, 678, 701, 718, 737, 751, 766, 784, 801, 816, 833, 848, 865, 880, 898, 914, 932, 948, 966, 982, 1003, 1022, 1043, 1062, 1083, 1102}
 
 func (i HoldRegister) String() string {
-	if i < 0 || i >= HoldRegister(len(_HoldRegister_index)-1) {
+	idx := int(i) - 0
+	if i < 0 || idx >= len(_HoldRegister_index)-1 {
 		return "HoldRegister(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
-	return _HoldRegister_name[_HoldRegister_index[i]:_HoldRegister_index[i+1]]
+	return _HoldRegister_name[_HoldRegister_index[idx]:_HoldRegister_index[idx+1]]
 }

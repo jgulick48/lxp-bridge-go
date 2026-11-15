@@ -2,7 +2,7 @@
 
 Holding registers are the inverter settings, read with Modbus function 3 and written with function 6. Every register
 below is published to `<namespace>/<datalog>/hold/<name>` and announced to Home Assistant: writable values as
-`number` entities, single bits as `switch` entities, and read-only values as `sensor` entities.
+`number` entities, single bits as `switch` entities, times of day as `text` entities holding `HH:MM`, and read-only values as `sensor` entities.
 
 Command topics are relative to `<namespace>/cmd/<datalog>/`. Payloads are in display units (the raw value times the
 scale), so `8.5` on register 66 sets 8.5 kW. **Range** is in display units. Writes outside the range are rejected.
@@ -28,8 +28,26 @@ bridge reads the register, changes only those bits, and writes it back. See [pol
 | 65 |  | `discharge_power_percent_cmd` | Discharging power percentage setting | number | 1 | % | 0 to 100 | `set/hold/65` | 100 |  |
 | 66 |  | `ac_charge_power_cmd` | AC Charge Power | number | 0.1 | kW | 0 to 12 | `set/hold/66` | 120 | Raw value in 100 W units: 120 is 12.0 kW. |
 | 67 |  | `ac_charge_soc_limit` | AC Charge SOC Limit | number | 1 | % | 0 to 101 | `set/hold/67` | 100 | 101 means never stop, used for cell balancing. |
+| 68 |  | `ac_charge_start_1` | AC Charge Window 1 Start | text | 1 |  | `HH:MM` | `set/hold/68` | 00:00 | Time of day, hour in the low byte and minute in the high byte (raw 0x1e07 is 07:30). Encoding from community projects (ant0nkr/luxpower-ha-integration, celsworth/lxp-bridge), not yet confirmed on the EG4 18kPV. Payload `HH:MM` or `H:MM`. |
+| 69 |  | `ac_charge_end_1` | AC Charge Window 1 End | text | 1 |  | `HH:MM` | `set/hold/69` | 00:00 |  |
+| 70 |  | `ac_charge_start_2` | AC Charge Window 2 Start | text | 1 |  | `HH:MM` | `set/hold/70` | 00:00 | Enabled by `ac_charge_enable` (bit 7 of 21) when AC charge type is time-based. Same encoding as register 68. |
+| 71 |  | `ac_charge_end_2` | AC Charge Window 2 End | text | 1 |  | `HH:MM` | `set/hold/71` | 00:00 |  |
+| 72 |  | `ac_charge_start_3` | AC Charge Window 3 Start | text | 1 |  | `HH:MM` | `set/hold/72` | 00:00 |  |
+| 73 |  | `ac_charge_end_3` | AC Charge Window 3 End | text | 1 |  | `HH:MM` | `set/hold/73` | 00:00 |  |
+| 76 |  | `forced_chg_start_1` | Forced Charge Window 1 Start | text | 1 |  | `HH:MM` | `set/hold/76` | 00:00 | Enabled by `forced_chg_enable` (bit 11 of 21). Same encoding as register 68. |
+| 77 |  | `forced_chg_end_1` | Forced Charge Window 1 End | text | 1 |  | `HH:MM` | `set/hold/77` | 00:00 |  |
+| 78 |  | `forced_chg_start_2` | Forced Charge Window 2 Start | text | 1 |  | `HH:MM` | `set/hold/78` | 00:00 |  |
+| 79 |  | `forced_chg_end_2` | Forced Charge Window 2 End | text | 1 |  | `HH:MM` | `set/hold/79` | 00:00 |  |
+| 80 |  | `forced_chg_start_3` | Forced Charge Window 3 Start | text | 1 |  | `HH:MM` | `set/hold/80` | 00:00 |  |
+| 81 |  | `forced_chg_end_3` | Forced Charge Window 3 End | text | 1 |  | `HH:MM` | `set/hold/81` | 00:00 |  |
 | 82 |  | `forced_dischg_power_cmd` | Forced Discharge Power | number | 0.1 | kW | 0 to 12 | `set/hold/82` | 120 | Raw value in 100 W units. |
 | 83 |  | `forced_dischg_soc_limit` | Forced Discharge SOC Limit | number | 1 | % | 0 to 100 | `set/hold/83` | 20 |  |
+| 84 |  | `forced_dischg_start_1` | Forced Discharge Window 1 Start | text | 1 |  | `HH:MM` | `set/hold/84` | 00:00 | Enabled by `forced_dischg_enable` (bit 10 of 21). Same encoding as register 68. |
+| 85 |  | `forced_dischg_end_1` | Forced Discharge Window 1 End | text | 1 |  | `HH:MM` | `set/hold/85` | 00:00 |  |
+| 86 |  | `forced_dischg_start_2` | Forced Discharge Window 2 Start | text | 1 |  | `HH:MM` | `set/hold/86` | 00:00 |  |
+| 87 |  | `forced_dischg_end_2` | Forced Discharge Window 2 End | text | 1 |  | `HH:MM` | `set/hold/87` | 00:00 |  |
+| 88 |  | `forced_dischg_start_3` | Forced Discharge Window 3 Start | text | 1 |  | `HH:MM` | `set/hold/88` | 00:00 |  |
+| 89 |  | `forced_dischg_end_3` | Forced Discharge Window 3 End | text | 1 |  | `HH:MM` | `set/hold/89` | 00:00 |  |
 | 101 |  | `charge_rate` | Battery Charge Current Limit | number | 1 | A | 0 to 250 | `set/hold/101` | 250 |  |
 | 102 |  | `discharge_rate` | Battery Discharge Current Limit | number | 1 | A | 0 to 250 | `set/hold/102` | 250 |  |
 | 105 |  | `discharge_cut_off_soc` | On-Grid Discharge Cut-Off SOC | number | 1 | % | 10 to 100 | `set/hold/105` | 10 | Lower limit of 10 follows pylxpweb. |
@@ -69,8 +87,6 @@ inverter screen or the EG4 app.
 | 21 other bits | Anti-islanding, neutral detect, GFCI, DCI, isolation detect, DRMS, LVRT |  |
 | 25-28 | Grid connection voltage and frequency limits | 2200, 2520, 5950, 6010 |
 | 59-62 | Reactive power mode and settings | 0, 100, 100, 1000 |
-| 68-81 | AC charge and forced charge time windows (encoding not yet confirmed) |  |
-| 84-89 | Forced discharge time windows |  |
 | 90 | Output voltage | 240 |
 | 91 | Output frequency | 60 |
 | 99 | Battery charge voltage reference | 560 |

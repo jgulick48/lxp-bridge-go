@@ -415,6 +415,16 @@ func (o *observer) Frame(result string) {
 
 func (c *client) ReportValue(register registers.Register, value int32, dataLogger string) {
 	topic := fmt.Sprintf("%s/%s/%s/%s", c.config.MQTTConfig.NameSpace, dataLogger, strings.ToLower(register.RegisterType.String()), strings.ToLower(register.ShortName))
+	if register.TimeOfDay {
+		// A time of day is a label, not a measurement: no gauge.
+		text, ok := registers.FormatTimeOfDay(uint16(value))
+		if !ok {
+			logrus.Debugf("Ignoring invalid time %#04x for %s on %s", uint16(value), register.ShortName, dataLogger)
+			return
+		}
+		_ = c.mqtt.SendMessage(topic, text, true)
+		return
+	}
 	floatVal := float32(value)
 	floatVal = floatVal * register.Multiplier
 	_ = c.mqtt.SendMessage(topic, fmt.Sprintf("%v", floatVal), true)
@@ -444,6 +454,8 @@ func controllable(r registers.Register) bool {
 	switch r.HomeAssistantType {
 	case registers.Number, registers.Switch:
 		return true
+	case registers.Text:
+		return r.TimeOfDay
 	}
 	return false
 }
@@ -521,15 +533,28 @@ func (c *client) HandleCommand(topic string, message []byte) {
 			payload = "0"
 		}
 	}
-	value, err := rawValue(register, payload)
-	if err != nil {
-		reject("%v", err)
-		return
-	}
-	min, max := registerRange(register)
-	if value < int64(min) || value > int64(max) {
-		reject("value %d outside allowed range %d..%d for register %d (%s)", value, min, max, registerID, register.ShortName)
-		return
+	var value int64
+	if register.TimeOfDay {
+		// The raw value is hour | minute<<8, so the numeric range check
+		// does not apply; ParseTimeOfDay validates hour and minute.
+		raw, err := registers.ParseTimeOfDay(payload)
+		if err != nil {
+			reject("%v", err)
+			return
+		}
+		value = int64(raw)
+	} else {
+		var err error
+		value, err = rawValue(register, payload)
+		if err != nil {
+			reject("%v", err)
+			return
+		}
+		min, max := registerRange(register)
+		if value < int64(min) || value > int64(max) {
+			reject("value %d outside allowed range %d..%d for register %d (%s)", value, min, max, registerID, register.ShortName)
+			return
+		}
 	}
 	if register.BitMask != 0 {
 		c.queueFieldWrite(inv, uint16(registerID), register, uint16(value))

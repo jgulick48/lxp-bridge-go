@@ -15,13 +15,6 @@ updated to "House Load".
 
 **Next step:** confirm `p_load` against `p_gen - p_rec` during a generator run (see [open questions](open-questions.md)).
 
-### Charge and discharge time windows
-Decode and expose holding registers 68-81 (AC charge and forced charge windows) and 84-89 (forced discharge windows)
-as Home Assistant time entities or numbers. The encoding looks like one hour byte and one minute byte per register but
-is not confirmed.
-
-**Next step:** capture the EG4 website writing a known window, as was done for generator quick start.
-
 ### MQTT over TLS
 Add `mqtt.tls` options (CA file, client certificate, `insecure_skip_verify`) so brokers outside the local network can
 be used without sending the username and password in plain text.
@@ -40,6 +33,13 @@ working.
 A `mqtt.read_only` option that rejects every write command, for monitoring-only installs.
 
 ## Resolved
+
+### Charge and discharge time windows
+Holding registers 68-73 (AC charge windows 1-3), 76-81 (forced charge) and 84-89 (forced discharge) are exposed as
+Home Assistant text entities holding `HH:MM`, readable and settable (`set/hold/68` with payload `07:30`). Each register
+holds one time with the hour in the low byte and the minute in the high byte, the opposite of the clock registers; the
+encoding comes from ant0nkr/luxpower-ha-integration and celsworth/lxp-bridge, which agree. Still to confirm: set a
+window in the EG4 app and check that the bridge shows the same time.
 
 ### Home Assistant availability
 Done in #25: `<namespace>/status` (with an MQTT last will) and `<namespace>/<datalog>/status`, referenced by every
