@@ -21,6 +21,7 @@ Reference documentation is in the [docs](docs/) folder:
 - [Input registers](docs/input-registers.md): every published measurement
 - [Holding registers](docs/holding-registers.md): every published or writable setting
 - [Open questions](docs/open-questions.md): registers that still need confirming
+- [Roadmap](docs/roadmap.md): planned features
 
 More general guides are in the [Wiki](https://github.com/jgulick48/lxp-bridge-go/wiki).
 
