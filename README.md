@@ -86,6 +86,51 @@ TLS 1.2 is the minimum. Invalid TLS settings (unreadable or empty `ca_file`, onl
 is logged when TLS is off, a username or password is set and `host` is a public IP address. In Docker, mounted cert and key
 files must be readable by uid 65532 (the `nonroot` user).
 
+#### Broker setup for TLS
+The broker needs a TLS listener before `mqtt.tls` can be turned on:
+1. **Server certificate.** Its name (SAN) must match `mqtt.host`, so a DNS name is easier than an IP; otherwise set
+   `mqtt.tls.server_name` to the name on the certificate. A publicly trusted certificate (for example Let's Encrypt)
+   needs no `ca_file`; a self-signed or private-CA certificate needs that CA as `ca_file`.
+2. **Listener on 8883.** Keep the plain 1883 listener until every other client (Home Assistant, Telegraf, ...) has moved
+   to TLS.
+3. **Mutual TLS (optional).** Make the broker require client certificates signed by your CA, and give the bridge its own
+   `cert_file` and `key_file`.
+4. **Network.** Open or forward 8883 (or expose it in the Kubernetes Service) from where the bridge runs.
+
+Mosquitto (`mosquitto.conf`):
+
+```conf
+listener 1883                          # existing plain listener; remove once all clients use TLS
+
+listener 8883
+certfile /mosquitto/certs/server.crt   # server certificate (full chain)
+keyfile  /mosquitto/certs/server.key
+cafile   /mosquitto/certs/ca.crt       # CA that signs client certificates (mutual TLS)
+tls_version tlsv1.2
+require_certificate true               # mutual TLS only
+# use_identity_as_username true        # optional: the client certificate CN becomes the username
+```
+
+Username and password authentication (`password_file`) keeps working over TLS. With `use_identity_as_username` the
+certificate replaces the password.
+
+Home Assistant Mosquitto add-on: put the files in `/ssl/` and set `certfile: fullchain.pem` and `keyfile: privkey.pem`
+in the add-on configuration (for mutual TLS also `cafile` and `require_certificate: true`), enable port 8883 under
+Network and restart the add-on.
+
+Matching bridge configuration:
+
+```yaml
+mqtt:
+  host: mqtt.example.lan       # must match the server certificate
+  port: 8883                   # or leave unset: 8883 is the default with TLS
+  tls:
+    enabled: true
+    ca_file: /var/lib/lxp-bridge-go/ca.crt        # omit for a publicly trusted certificate
+    cert_file: /var/lib/lxp-bridge-go/client.crt  # mutual TLS only
+    key_file: /var/lib/lxp-bridge-go/client.key
+```
+
 Per inverter (`inverters[]`):
 * `enabled`: inverters that are not enabled are skipped.
 * `host`, `port`, `datalog`, `serial`.
