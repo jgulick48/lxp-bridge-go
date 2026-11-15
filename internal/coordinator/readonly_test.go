@@ -180,3 +180,25 @@ func TestReadOnlyDiscovery(t *testing.T) {
 		assert.False(t, strings.Contains(topic, "/number/") || strings.Contains(topic, "/switch/") || strings.Contains(topic, "/text/"), topic)
 	}
 }
+
+// Turning read_only off again must clear the read-only sensors it announced,
+// or Home Assistant shows each control twice.
+func TestLeavingReadOnlyClearsReadOnlyEntities(t *testing.T) {
+	m := &recMQTT{msgs: map[string]string{}}
+	c, _, _ := newRO(t, roConfig(false, models.ClockSyncConfig{}), m, nil)
+	c.onMQTTConnect()
+
+	for _, r := range registers.HoldRegisters {
+		if !r.Writeable {
+			continue
+		}
+		base := "/lxp_" + datalog + "/" + strings.ToLower(r.ShortName) + "/config"
+		control := "homeassistant/" + strings.ToLower(r.DiscoveryType().String()) + base
+		ro := r.AsReadOnly()
+		readOnly := "homeassistant/" + strings.ToLower(ro.DiscoveryType().String()) + base
+		require.NotEqual(t, control, readOnly, r.ShortName)
+		assert.NotEmpty(t, m.msgs[control], "%s: control not announced", r.ShortName)
+		v, ok := m.msgs[readOnly]
+		assert.True(t, ok && v == "", "%s: read-only variant %s not cleared", r.ShortName, readOnly)
+	}
+}

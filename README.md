@@ -172,7 +172,8 @@ MQTT commands are not subscribed to (and are rejected if one arrives anyway), bi
 clock sync is disabled (a warning is logged if `clock_sync.enabled` is set; the drift metric still works). Polling
 reads are unaffected. Home Assistant discovery announces sensors and binary sensors only, with no command topics, and
 the bridge clears the retained config of previously announced numbers, switches and text entities so the stale
-controls disappear from Home Assistant.
+controls disappear from Home Assistant. Turning `read_only` off again clears those read-only sensors in the same way,
+so each setting is never shown twice.
 
 ### Building
 Version information is injected with `-ldflags "-X main.version=<v> -X main.commit=<sha>"` and logged at startup.

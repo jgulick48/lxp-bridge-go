@@ -703,13 +703,22 @@ func (c *client) reportHomeAssistant(config models.LXPConfig) {
 		return fmt.Sprintf("%s/%s/%s/%s/config", prefix, strings.ToLower(t.String()), device.Name, strings.ToLower(register.ShortName))
 	}
 	publish := func(id int, register registers.Register) {
-		if c.config.ReadOnly && register.Writeable {
-			// Clear the controllable entity announced by an earlier run so
-			// Home Assistant removes it, then announce the read-only one.
-			if err := c.mqtt.SendMessage(configTopic(register.DiscoveryType(), register), "", true); err != nil {
-				logrus.Errorf("Error clearing stale controllable entity from homeassistant %s", err.Error())
+		if register.Writeable {
+			// A writable register is announced as a control normally and as a
+			// sensor in read-only mode. Clear whichever variant an earlier run
+			// with the other setting left retained, so Home Assistant removes
+			// it instead of showing the register twice.
+			readOnly := register.AsReadOnly()
+			stale := readOnly
+			if c.config.ReadOnly {
+				stale = register
+				register = readOnly
 			}
-			register = register.AsReadOnly()
+			if stale.DiscoveryType() != register.DiscoveryType() {
+				if err := c.mqtt.SendMessage(configTopic(stale.DiscoveryType(), stale), "", true); err != nil {
+					logrus.Errorf("Error clearing stale entity from homeassistant %s", err.Error())
+				}
+			}
 		}
 		registerString, _ := json.Marshal(register.ToJson(id, device, c.config.MQTTConfig.NameSpace, config.DataLog))
 		if err := c.mqtt.SendMessage(configTopic(register.DiscoveryType(), register), registerString, true); err != nil {
