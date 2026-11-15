@@ -214,6 +214,24 @@ const (
 	AC_Charge_Type
 	Gen_Quick_Start
 	Gen_Cool_Down_Time
+	AC_Charge_Start_1
+	AC_Charge_End_1
+	AC_Charge_Start_2
+	AC_Charge_End_2
+	AC_Charge_Start_3
+	AC_Charge_End_3
+	Forced_Chg_Start_1
+	Forced_Chg_End_1
+	Forced_Chg_Start_2
+	Forced_Chg_End_2
+	Forced_Chg_Start_3
+	Forced_Chg_End_3
+	Forced_Dischg_Start_1
+	Forced_Dischg_End_1
+	Forced_Dischg_Start_2
+	Forced_Dischg_End_2
+	Forced_Dischg_Start_3
+	Forced_Dischg_End_3
 )
 
 const (
@@ -237,6 +255,9 @@ type Register struct {
 	StateClass     string
 	DeviceClass    string
 	Pattern        string
+	// TimeOfDay marks a hold register holding one time of day: hour in the low
+	// byte, minute in the high byte. It is published and set as "HH:MM".
+	TimeOfDay bool
 	// BitMask selects part of a hold register. Zero means the whole register.
 	BitMask uint16
 	Unit    string
@@ -265,6 +286,7 @@ func (r *Register) ToJson(id int, device Device, namespace, datalogger string) R
 		Name:              r.Name,
 		StateTopic:        fmt.Sprintf("%s/%s/%s/%s", namespace, datalogger, strings.ToLower(r.RegisterType.String()), strings.ToLower(r.ShortName)),
 		CommandTopic:      commandTopic,
+		Pattern:           r.Pattern,
 		EntityCategory:    r.EntityCategory,
 		StateClass:        r.StateClass,
 		DeviceClass:       r.DeviceClass,
@@ -391,6 +413,24 @@ var HoldIDToRegisterMap = map[int]HoldRegister{
 	234: Quick_Charge_Minute,
 	237: Gen_Cool_Down_Time,
 	177: Gen_Rate_power,
+	68:  AC_Charge_Start_1,
+	69:  AC_Charge_End_1,
+	70:  AC_Charge_Start_2,
+	71:  AC_Charge_End_2,
+	72:  AC_Charge_Start_3,
+	73:  AC_Charge_End_3,
+	76:  Forced_Chg_Start_1,
+	77:  Forced_Chg_End_1,
+	78:  Forced_Chg_Start_2,
+	79:  Forced_Chg_End_2,
+	80:  Forced_Chg_Start_3,
+	81:  Forced_Chg_End_3,
+	84:  Forced_Dischg_Start_1,
+	85:  Forced_Dischg_End_1,
+	86:  Forced_Dischg_Start_2,
+	87:  Forced_Dischg_End_2,
+	88:  Forced_Dischg_Start_3,
+	89:  Forced_Dischg_End_3,
 }
 
 var HoldRegisterToIDMap = map[HoldRegister]int{
@@ -439,6 +479,24 @@ var HoldRegisterToIDMap = map[HoldRegister]int{
 	AC_Charge_Type:              120,
 	Gen_Quick_Start:             110,
 	Gen_Cool_Down_Time:          237,
+	AC_Charge_Start_1:           68,
+	AC_Charge_End_1:             69,
+	AC_Charge_Start_2:           70,
+	AC_Charge_End_2:             71,
+	AC_Charge_Start_3:           72,
+	AC_Charge_End_3:             73,
+	Forced_Chg_Start_1:          76,
+	Forced_Chg_End_1:            77,
+	Forced_Chg_Start_2:          78,
+	Forced_Chg_End_2:            79,
+	Forced_Chg_Start_3:          80,
+	Forced_Chg_End_3:            81,
+	Forced_Dischg_Start_1:       84,
+	Forced_Dischg_End_1:         85,
+	Forced_Dischg_Start_2:       86,
+	Forced_Dischg_End_2:         87,
+	Forced_Dischg_Start_3:       88,
+	Forced_Dischg_End_3:         89,
 }
 
 // HoldRegisters are settings that can be changed on the inverter
@@ -918,6 +976,204 @@ var HoldRegisters = map[HoldRegister]Register{
 		Min:               0,
 		Max:               2,
 		Step:              1,
+		Writeable:         true,
+	},
+	AC_Charge_Start_1: {
+		RegisterType:      Hold,
+		ShortName:         AC_Charge_Start_1.String(),
+		Name:              "AC Charge Window 1 Start",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	AC_Charge_End_1: {
+		RegisterType:      Hold,
+		ShortName:         AC_Charge_End_1.String(),
+		Name:              "AC Charge Window 1 End",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	AC_Charge_Start_2: {
+		RegisterType:      Hold,
+		ShortName:         AC_Charge_Start_2.String(),
+		Name:              "AC Charge Window 2 Start",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	AC_Charge_End_2: {
+		RegisterType:      Hold,
+		ShortName:         AC_Charge_End_2.String(),
+		Name:              "AC Charge Window 2 End",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	AC_Charge_Start_3: {
+		RegisterType:      Hold,
+		ShortName:         AC_Charge_Start_3.String(),
+		Name:              "AC Charge Window 3 Start",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	AC_Charge_End_3: {
+		RegisterType:      Hold,
+		ShortName:         AC_Charge_End_3.String(),
+		Name:              "AC Charge Window 3 End",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	Forced_Chg_Start_1: {
+		RegisterType:      Hold,
+		ShortName:         Forced_Chg_Start_1.String(),
+		Name:              "Forced Charge Window 1 Start",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	Forced_Chg_End_1: {
+		RegisterType:      Hold,
+		ShortName:         Forced_Chg_End_1.String(),
+		Name:              "Forced Charge Window 1 End",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	Forced_Chg_Start_2: {
+		RegisterType:      Hold,
+		ShortName:         Forced_Chg_Start_2.String(),
+		Name:              "Forced Charge Window 2 Start",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	Forced_Chg_End_2: {
+		RegisterType:      Hold,
+		ShortName:         Forced_Chg_End_2.String(),
+		Name:              "Forced Charge Window 2 End",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	Forced_Chg_Start_3: {
+		RegisterType:      Hold,
+		ShortName:         Forced_Chg_Start_3.String(),
+		Name:              "Forced Charge Window 3 Start",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	Forced_Chg_End_3: {
+		RegisterType:      Hold,
+		ShortName:         Forced_Chg_End_3.String(),
+		Name:              "Forced Charge Window 3 End",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	Forced_Dischg_Start_1: {
+		RegisterType:      Hold,
+		ShortName:         Forced_Dischg_Start_1.String(),
+		Name:              "Forced Discharge Window 1 Start",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	Forced_Dischg_End_1: {
+		RegisterType:      Hold,
+		ShortName:         Forced_Dischg_End_1.String(),
+		Name:              "Forced Discharge Window 1 End",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	Forced_Dischg_Start_2: {
+		RegisterType:      Hold,
+		ShortName:         Forced_Dischg_Start_2.String(),
+		Name:              "Forced Discharge Window 2 Start",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	Forced_Dischg_End_2: {
+		RegisterType:      Hold,
+		ShortName:         Forced_Dischg_End_2.String(),
+		Name:              "Forced Discharge Window 2 End",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	Forced_Dischg_Start_3: {
+		RegisterType:      Hold,
+		ShortName:         Forced_Dischg_Start_3.String(),
+		Name:              "Forced Discharge Window 3 Start",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
+		Writeable:         true,
+	},
+	Forced_Dischg_End_3: {
+		RegisterType:      Hold,
+		ShortName:         Forced_Dischg_End_3.String(),
+		Name:              "Forced Discharge Window 3 End",
+		HomeAssistantType: Text,
+		Multiplier:        1,
+		EntityCategory:    "config",
+		Pattern:           TimeOfDayPattern,
+		TimeOfDay:         true,
 		Writeable:         true,
 	},
 }

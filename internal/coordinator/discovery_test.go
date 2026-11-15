@@ -93,7 +93,7 @@ func TestEveryRegisterIsAnnouncedAndPublished(t *testing.T) {
 		_, published := m.msgs[c.StateTopic]
 		assert.True(t, published, "%s: nothing published to state topic %s", r.ShortName, c.StateTopic)
 		switch component {
-		case "Number", "Switch":
+		case "Number", "Switch", "Text":
 			assert.NotEmpty(t, c.CommandTopic, "%s is a %s without a command topic", r.ShortName, component)
 		default:
 			assert.Empty(t, c.CommandTopic, "%s", r.ShortName)
@@ -119,6 +119,12 @@ func TestEveryRegisterIsAnnouncedAndPublished(t *testing.T) {
 	}
 	for _, r := range all {
 		name := "lxp_" + strings.ToLower(r.ShortName)
+		if r.TimeOfDay {
+			// A time of day is not a measurement.
+			_, ok := sink.gauges[name]
+			assert.False(t, ok, "%s: time register must not have a statsd gauge", r.ShortName)
+			continue
+		}
 		other, dup := gauges[name]
 		assert.False(t, dup, "%s and %s share the statsd gauge %s", r.ShortName, other, name)
 		gauges[name] = r.ShortName
