@@ -101,6 +101,17 @@ Additionally, with the same tag:
 * `<namespace>_bridge_reconnects` count
 * `<namespace>_bridge_commands_dropped` count (command queue of 32 was full)
 
+### Availability
+The bridge publishes retained availability payloads (`online` / `offline`) so Home Assistant marks entities
+unavailable instead of showing stale values:
+* `<namespace>/status` is `online` while the bridge is connected to the broker. The broker publishes `offline` for
+  it (MQTT last will) if the bridge disappears, and the bridge sends `offline` on a clean shutdown.
+* `<namespace>/<datalog>/status` is `online` when the inverter connection is up and a valid frame has arrived since the
+  bridge started, no longer ago than `health_check_duration` (5m when unset). Otherwise it is `offline`. It is
+  re-evaluated every 10s and published when it changes, and again on every MQTT reconnect.
+
+Every discovered entity lists both topics with `availability_mode: all`, so it is available only when both are `online`.
+
 ### MQTT writes
 Settings are changed by publishing to `<namespace>/cmd/<datalog>/set/hold/<register>` with the value in display units
 (for example `48.5` for a voltage or `8.5` for 8.5 kW). Settings that are single bits of a shared register, such as

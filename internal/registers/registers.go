@@ -271,6 +271,13 @@ func (r *Register) ToJson(id int, device Device, namespace, datalogger string) R
 		ValueTemplate:     "",
 		UnitOfMeasurement: r.Unit,
 		Step:              r.Step * r.Multiplier,
+		// Same topics as mqtt.StatusTopic and the coordinator's per-inverter
+		// status; spelled out here because registers cannot import mqtt.
+		Availability: []Availability{
+			{Topic: namespace + "/status"},
+			{Topic: fmt.Sprintf("%s/%s/status", namespace, datalogger)},
+		},
+		AvailabilityMode: "all",
 	}
 	switch r.DiscoveryType() {
 	case Number:
@@ -316,25 +323,31 @@ func (r *Register) SetField(raw, value uint16) uint16 {
 }
 
 type RegisterJson struct {
-	UniqueID          string            `json:"unique_id"`
-	Device            Device            `json:"device"`
-	Name              string            `json:"name"`
-	StateTopic        string            `json:"state_topic"`
-	CommandTopic      string            `json:"command_topic,omitempty"`
-	EntityCategory    string            `json:"entity_category,omitempty"`
-	StateClass        string            `json:"state_class,omitempty"`
-	DeviceClass       string            `json:"device_class,omitempty"`
-	ValueTemplate     string            `json:"value_template,omitempty"`
-	UnitOfMeasurement string            `json:"unit_of_measurement,omitempty"`
-	Availability      map[string]string `json:"availability,omitempty"`
-	Min               *float32          `json:"min,omitempty"`
-	Max               *float32          `json:"max,omitempty"`
-	Step              float32           `json:"step,omitempty"`
-	Pattern           string            `json:"pattern,omitempty"`
-	PayloadOn         string            `json:"payload_on,omitempty"`
-	PayloadOff        string            `json:"payload_off,omitempty"`
-	StateOn           string            `json:"state_on,omitempty"`
-	StateOff          string            `json:"state_off,omitempty"`
+	UniqueID          string         `json:"unique_id"`
+	Device            Device         `json:"device"`
+	Name              string         `json:"name"`
+	StateTopic        string         `json:"state_topic"`
+	CommandTopic      string         `json:"command_topic,omitempty"`
+	EntityCategory    string         `json:"entity_category,omitempty"`
+	StateClass        string         `json:"state_class,omitempty"`
+	DeviceClass       string         `json:"device_class,omitempty"`
+	ValueTemplate     string         `json:"value_template,omitempty"`
+	UnitOfMeasurement string         `json:"unit_of_measurement,omitempty"`
+	Availability      []Availability `json:"availability,omitempty"`
+	AvailabilityMode  string         `json:"availability_mode,omitempty"`
+	Min               *float32       `json:"min,omitempty"`
+	Max               *float32       `json:"max,omitempty"`
+	Step              float32        `json:"step,omitempty"`
+	Pattern           string         `json:"pattern,omitempty"`
+	PayloadOn         string         `json:"payload_on,omitempty"`
+	PayloadOff        string         `json:"payload_off,omitempty"`
+	StateOn           string         `json:"state_on,omitempty"`
+	StateOff          string         `json:"state_off,omitempty"`
+}
+
+// Availability is one Home Assistant availability topic.
+type Availability struct {
+	Topic string `json:"topic"`
 }
 
 type Device struct {
