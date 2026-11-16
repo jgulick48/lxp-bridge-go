@@ -141,7 +141,7 @@ the generator with no grid connected.
 | 150 | `afci_max_arc_ch2` | Max ARC of CH2 | 1 |  | short | 0 | Values on an 18kPV do not look like AFCI data. See [open questions](open-questions.md). |
 | 151 | `afci_max_arc_ch3` | Max ARC of CH3 | 1 |  | short | 32256 | Values on an 18kPV do not look like AFCI data. See [open questions](open-questions.md). |
 | 152 | `afci_max_arc_ch4` | Max ARC of CH4 | 1 |  | short | 32256 | Values on an 18kPV do not look like AFCI data. See [open questions](open-questions.md). |
-| 170 | `p_load` | Load Power | 1 | W | short | 1247 | Signed. Load supplied through the grid or generator input. On battery it reads the same as `p_eps`, not 0. See [open questions](open-questions.md). |
+| 170 | `p_load` | House Load | 1 | W | short | 1247 | Signed. Whole-house load in every mode: about `p_gen - p_rec` on generator, the same as `p_eps` on battery or solar. Do not add it to `p_eps`, which would count the load twice. Confirmed on an EG4 18kPV on 2026-11-15. |
 | 171 | `e_load_day` | Load Energy (Today) | 0.1 | kWh | short | 200 |  |
 | 172-173 | `e_load_all` | Load Energy (Total) | 0.1 | kWh | short | 38834, 4 | 32-bit. |
 | 193 | `v_grid_l1` | Grid Voltage (L1) | 0.1 | V | short | 0 | 0 with no grid connected. |

@@ -1473,12 +1473,13 @@ var InputRegisters = map[InputRegister]Register{
 		Multiplier:   1,
 		Unit:         "W",
 	},
-	// P_LOAD (input 170) is load passed through from grid or generator. It is
-	// about 0 on battery, where the load shows up in P_EPS instead.
+	// P_LOAD (input 170) is the whole-house load in every mode: it tracks
+	// P_GEN - P_REC on generator and equals P_EPS on battery or solar, so it
+	// must not be added to P_EPS (confirmed on an EG4 18kPV, 2026-11-15).
 	P_LOAD: {
 		RegisterType: Input,
 		ShortName:    P_LOAD.String(),
-		Name:         "Load Power",
+		Name:         "House Load",
 		StateClass:   "measurement",
 		DeviceClass:  "power",
 		Multiplier:   1,
