@@ -215,8 +215,9 @@ topics automatically through discovery.
 Set `read_only: true` at the top level for a monitoring-only install. The bridge then never writes to any inverter:
 MQTT commands are not subscribed to (and are rejected if one arrives anyway), bit-field writes are never queued, and
 clock sync is disabled (a warning is logged if `clock_sync.enabled` is set; the drift metric still works). Polling
-reads are unaffected. Home Assistant discovery announces sensors and binary sensors only, with no command topics, and
-the bridge clears the retained config of previously announced numbers, switches and text entities so the stale
+reads are unaffected. Home Assistant discovery announces sensors and binary sensors only, with no command topics.
+Settings that are normally in the device's Configuration section (the charge and discharge time windows) move to its
+Diagnostic section, because Home Assistant does not allow the config category on sensors. The bridge clears the retained config of previously announced numbers, switches and text entities so the stale
 controls disappear from Home Assistant. Turning `read_only` off again clears those read-only sensors in the same way,
 so each setting is never shown twice.
 
