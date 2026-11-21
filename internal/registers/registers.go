@@ -331,8 +331,9 @@ func (r *Register) DiscoveryType() HomeAssistantType {
 // AsReadOnly returns the register as it is announced to Home Assistant when
 // the bridge is read-only: controllable entities become their read-only
 // equivalent (number -> sensor, switch -> binary sensor, text -> sensor) and
-// no command topic is published. Registers that were never writeable are
-// returned unchanged.
+// no command topic is published. Home Assistant only accepts entity_category
+// "config" on controllable entities, so it becomes "diagnostic". Registers that
+// were never writeable are returned unchanged.
 func (r Register) AsReadOnly() Register {
 	if !r.Writeable {
 		return r
@@ -343,6 +344,9 @@ func (r Register) AsReadOnly() Register {
 		r.HomeAssistantType = Sensor
 	case Switch:
 		r.HomeAssistantType = BinarySensor
+	}
+	if r.EntityCategory == "config" {
+		r.EntityCategory = "diagnostic"
 	}
 	return r
 }

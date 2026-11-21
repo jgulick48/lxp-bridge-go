@@ -202,3 +202,70 @@ func TestLeavingReadOnlyClearsReadOnlyEntities(t *testing.T) {
 		assert.True(t, ok && v == "", "%s: read-only variant %s not cleared", r.ShortName, readOnly)
 	}
 }
+
+// discoveryConfigs returns every announced (non-empty) discovery config by topic.
+func discoveryConfigs(t *testing.T, m *recMQTT) map[string]map[string]interface{} {
+	t.Helper()
+	out := map[string]map[string]interface{}{}
+	for topic, raw := range m.msgs {
+		if raw == "" || !strings.HasPrefix(topic, "homeassistant/") || !strings.HasSuffix(topic, "/config") {
+			continue
+		}
+		var js map[string]interface{}
+		require.NoError(t, json.Unmarshal([]byte(raw), &js), topic)
+		out[topic] = js
+	}
+	return out
+}
+
+// Home Assistant rejects entity_category "config" on sensors and binary
+// sensors (#36), so read-only mode must never announce one.
+func TestReadOnlyNoConfigCategoryOnSensors(t *testing.T) {
+	for _, r := range registers.HoldRegisters {
+		ro := r.AsReadOnly()
+		if ro.DiscoveryType() == registers.Sensor || ro.DiscoveryType() == registers.BinarySensor {
+			assert.NotEqual(t, "config", ro.EntityCategory, r.ShortName)
+		}
+		if r.Writeable && r.EntityCategory == "config" {
+			assert.Equal(t, "diagnostic", ro.EntityCategory, r.ShortName)
+		}
+	}
+	for _, r := range registers.InputRegisters {
+		assert.NotEqual(t, "config", r.AsReadOnly().EntityCategory, r.ShortName)
+	}
+
+	m := &recMQTT{msgs: map[string]string{}}
+	c, _, _ := newRO(t, roConfig(true, models.ClockSyncConfig{}), m, nil)
+	c.onMQTTConnect()
+	diagnostic := 0
+	for topic, js := range discoveryConfigs(t, m) {
+		if strings.Contains(topic, "/sensor/") || strings.Contains(topic, "/binary_sensor/") {
+			assert.NotEqual(t, "config", js["entity_category"], topic)
+		}
+		if js["entity_category"] == "diagnostic" {
+			diagnostic++
+		}
+	}
+	assert.Positive(t, diagnostic, "downgraded config entities should be announced as diagnostic")
+}
+
+// Writeable mode keeps entity_category config on the controls.
+func TestWriteableModeKeepsConfigCategory(t *testing.T) {
+	m := &recMQTT{msgs: map[string]string{}}
+	c, _, _ := newRO(t, roConfig(false, models.ClockSyncConfig{}), m, nil)
+	c.onMQTTConnect()
+	cfgs := discoveryConfigs(t, m)
+	n := 0
+	for _, r := range registers.HoldRegisters {
+		if r.EntityCategory != "config" {
+			continue
+		}
+		topic := "homeassistant/" + strings.ToLower(r.DiscoveryType().String()) + "/lxp_" + datalog + "/" + strings.ToLower(r.ShortName) + "/config"
+		js, ok := cfgs[topic]
+		require.True(t, ok, topic)
+		assert.Equal(t, "config", js["entity_category"], topic)
+		assert.Contains(t, js, "command_topic", topic)
+		n++
+	}
+	assert.Positive(t, n)
+}
