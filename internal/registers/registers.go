@@ -161,6 +161,10 @@ const (
 	P_TO_GRID_L2
 	P_TO_USER_L1
 	P_TO_USER_L2
+	PARALLEL_ROLE
+	PARALLEL_PHASE
+	PARALLEL_NUM
+	AC_COUPLE_POWER
 )
 
 const (
@@ -1620,6 +1624,40 @@ var InputRegisters = map[InputRegister]Register{
 		RegisterType: Input,
 		ShortName:    P_TO_USER_L2.String(),
 		Name:         "Import Power from Grid (L2)",
+		StateClass:   "measurement",
+		DeviceClass:  "power",
+		Multiplier:   1,
+		Unit:         "W",
+	},
+	// Input 113: bits 0-1 parallel role (1 primary, 2 secondary, 0 standalone),
+	// bits 2-3 phase of this unit, bits 8-15 number of units in the system.
+	PARALLEL_ROLE: {
+		RegisterType:   Input,
+		ShortName:      PARALLEL_ROLE.String(),
+		Name:           "Parallel Role",
+		EntityCategory: "diagnostic",
+		Multiplier:     1,
+	},
+	PARALLEL_PHASE: {
+		RegisterType:   Input,
+		ShortName:      PARALLEL_PHASE.String(),
+		Name:           "Parallel Phase",
+		EntityCategory: "diagnostic",
+		Multiplier:     1,
+	},
+	PARALLEL_NUM: {
+		RegisterType:   Input,
+		ShortName:      PARALLEL_NUM.String(),
+		Name:           "Parallel Unit Count",
+		EntityCategory: "diagnostic",
+		Multiplier:     1,
+	},
+	// AC_COUPLE_POWER is input 153: on the 12000XP/6000XP the power on the GEN
+	// port when it carries AC-coupled PV.
+	AC_COUPLE_POWER: {
+		RegisterType: Input,
+		ShortName:    AC_COUPLE_POWER.String(),
+		Name:         "AC Couple Power",
 		StateClass:   "measurement",
 		DeviceClass:  "power",
 		Multiplier:   1,

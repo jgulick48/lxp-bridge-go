@@ -112,6 +112,9 @@ the generator with no grid connected.
 | 110 | `t3` | 12K BT Temperature | 0.1 | °C | long | 0 |  |
 | 111 | `t4` | 12K BT Temperature | 0.1 | °C | long | 0 |  |
 | 112 | `t5` | 12K BT Temperature | 0.1 | °C | long | 0 |  |
+| 113 | `parallel_role` | Parallel Role | 1 |  | long | 1 | Bits 0-1 of register 113: 1 primary, 2 secondary, 0 standalone. Raw 0x0205 is role 1, phase 1, 2 units. |
+| 113 | `parallel_phase` | Parallel Phase | 1 |  | long | 1 | Bits 2-3 of register 113. The phase of this unit; in a three-phase system of three units, each unit's phase. |
+| 113 | `parallel_num` | Parallel Unit Count | 1 |  | long | 1 | Bits 8-15 of register 113. Number of units in the parallel system. |
 | 114 | `consumption_power` | Consumption Power | 1 | W | long | 1222 | Equals register 170 on an 18kPV. Zero on some other models. |
 | 120 | `v_bus_p` | Half Bus Voltage | 0.1 | V | short | 1854 |  |
 | 121 | `v_gen` | Generator Voltage | 0.1 | V | short | 2410 |  |
@@ -141,6 +144,7 @@ the generator with no grid connected.
 | 150 | `afci_max_arc_ch2` | Max ARC of CH2 | 1 |  | short | 0 | Values on an 18kPV do not look like AFCI data. See [open questions](open-questions.md). |
 | 151 | `afci_max_arc_ch3` | Max ARC of CH3 | 1 |  | short | 32256 | Values on an 18kPV do not look like AFCI data. See [open questions](open-questions.md). |
 | 152 | `afci_max_arc_ch4` | Max ARC of CH4 | 1 |  | short | 32256 | Values on an 18kPV do not look like AFCI data. See [open questions](open-questions.md). |
+| 153 | `ac_couple_power` | AC Couple Power | 1 | W | short | 13171 | On the 12000XP/6000XP, the power on the GEN port when it carries AC-coupled PV. On an 18kPV it tracks generator power (123). |
 | 170 | `p_load` | House Load | 1 | W | short | 1247 | Signed. Whole-house load in every mode: about `p_gen - p_rec` on generator, the same as `p_eps` on battery or solar. Do not add it to `p_eps`, which would count the load twice. Confirmed on an EG4 18kPV on 2026-11-15. |
 | 171 | `e_load_day` | Load Energy (Today) | 0.1 | kWh | short | 200 |  |
 | 172-173 | `e_load_all` | Load Energy (Total) | 0.1 | kWh | short | 38834, 4 | 32-bit. |
@@ -167,11 +171,26 @@ These registers come back in the blocks the bridge reads but are not decoded.
 | 72-74 | 0, 0, 0 | Decoded as PV string currents; listed above. |
 | 75 | 0 | Battery current measured by the inverter (pylxpweb). Read 0 while charging at about 211 A. |
 | 80 | 2 | Battery type and BMS communication type. |
-| 113 | 261 | Parallel configuration: bits 0-1 role, bits 2-3 phase, bits 8-15 number of units. |
 | 115-119 | 12595, 12857, 14134, 12336, 13622 | Inverter serial number as ASCII. |
-| 153 | 13171 | AC couple power (pylxpweb). Tracks generator power (123) on an 18kPV. |
 | 185 | 100 | Unknown. Constant 100. "On-grid power, T phase" in one project, which does not fit a split-phase unit. |
 | 210 | 0 | Quick charge remaining time in seconds (pylxpweb). |
 | 217-231 |  | PV strings 4-6 on models with more than 3 strings. |
 | 232 | 0 | Smart load power (pylxpweb). |
 | 233-268 |  | Mirror configuration values (for example 244 bootloader version, 245 flash size, 253 SOC hysteresis), not measurements. |
+
+## EG4 6000XP
+
+Set `model: 6000xp` on the inverter. Some registers hold other data on that model (register dumps in
+[issue #38](https://github.com/jgulick48/lxp-bridge-go/issues/38)), so the bridge does not publish or announce them,
+and clears their retained Home Assistant entities. `v_gen` and `f_gen` are kept.
+
+| Registers | MQTT names | Why |
+|---|---|---|
+| 3, 9, 30, 44-45, 74 (PV 3) | `v_pv_3`, `p_pv_3`, `e_pv_day_3`, `e_pv_3_all`, `i_pv_3` | One of two PV inputs only; register 3 mirrors the bus voltage. |
+| 13, 14, 21, 22 | `v_ac_s`, `v_ac_t`, `v_eps_s`, `v_eps_t` | Not voltages on this model. |
+| 123-126 | `p_gen`, `e_gen_day`, `e_gen_all` | 123 is a seconds counter, 124-126 are status words. |
+| 105 | `bms_fw_update_state`, `gen_cool_down`, `gen_dry_contact` | Different bit layout. |
+| 114, 171-173 | `consumption_power`, `e_load_day`, `e_load_all` | Not filled in. |
+| 193-204 | `v_grid_l1` ... `p_to_user_l2` (per-leg values) | Not filled in; the 6kXP protocol document lists 194-199 as unused. |
+
+Holding registers: see [holding registers](holding-registers.md#eg4-6000xp).

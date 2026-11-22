@@ -97,3 +97,14 @@ inverter screen or the EG4 app.
 | 176 | Max grid input power | 65535 |
 | 206-208, 218-219, 232 | Grid peak shaving power, SOC and voltage |  |
 | 227-228 | System charge SOC and voltage limits | 101, 595 |
+
+## EG4 6000XP
+
+With `model: 6000xp` the bridge does not announce or accept writes to:
+
+* 110 bit 7 (`gen_quick_start`): on the 6000XP/12000XP this bit is the buzzer enable, not a generator quick start.
+* The 18 time windows (68-73, 76-81, 84-89).
+* 237 (`gen_cool_down_time`).
+
+Register 177 (`gen_rate_power`) is read in watts (scale 1, raw 7370 is 7370 W) and announced as a read-only sensor,
+not a kW number. Retained Home Assistant entities from before the model was set are cleared.

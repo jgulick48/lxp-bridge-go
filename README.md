@@ -52,6 +52,7 @@ inverters:
     short_read: 30s          # input blocks 0, 40, 120 and 160-204
     long_read: 30s           # input block 80 (BMS data)
     hold_read: 15m           # settings
+    # model: 6000xp          # EG4 6000XP register layout; empty for 18kPV/12kPV
     health_check_duration: 3m
 mqtt:
   enabled: true
@@ -142,6 +143,10 @@ Per inverter (`inverters[]`):
 * `hold_read`: how often the holding (settings) registers are read (default 15m, `-1s` disables). When enabled they
   are also read every time the inverter connects.
 * `publish_holdings_on_connect`: read the holding registers every time the inverter connects, even with `hold_read: -1s`.
+* `model`: register layout, case-insensitive. Empty (default) is the EG4 18kPV/12kPV layout. `6000xp` is the EG4
+  6000XP: it drops the registers that hold other data on that model (see [input registers](docs/input-registers.md#eg4-6000xp))
+  and reads `gen_rate_power` in W. The bridge logs a warning when an inverter's device type code (holding 19) says
+  6000XP/12000XP but `model` is not set.
 * `health_check_duration`: default 5m, see below.
 * `crc_mode`:
   * `log` (default): translated-data frames are CRC16/MODBUS checked; a mismatch is counted (`result:crc_error`) and logged at debug, but the frame is still decoded.

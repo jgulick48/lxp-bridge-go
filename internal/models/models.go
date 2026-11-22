@@ -77,7 +77,10 @@ type LXPConfig struct {
 	ShortRead                time.Duration `yaml:"short_read"`
 	LongRead                 time.Duration `yaml:"long_read"`
 	// HoldRead is how often the holding (settings) registers are read. -1s disables.
-	HoldRead            time.Duration `yaml:"hold_read"`
+	HoldRead time.Duration `yaml:"hold_read"`
+	// Model selects the register mapping, case-insensitively. Empty is the
+	// default (18kPV-style) mapping; "6000xp" is the EG4 6000XP.
+	Model               string        `yaml:"model"`
 	HealthCheckDuration time.Duration `yaml:"health_check_duration"`
 	// CRCMode is "log" (default) or "drop"; see README.
 	CRCMode string `yaml:"crc_mode"`

@@ -209,3 +209,45 @@ func TestBatteryVoltageSampleScale(t *testing.T) {
 	// Input 107 is in 0.1 V like V_BAT (input 4): raw 533 is 53.3 V.
 	assert.InDelta(t, 0.1, registers.InputRegisters[registers.BAT_VOLT_SMPL_INV].Multiplier, 1e-6)
 }
+
+func TestDecodeParallelRegister113(t *testing.T) {
+	for _, tc := range []struct {
+		raw            uint16
+		role, phase, n int32
+	}{
+		{0x0205, 1, 1, 2},
+		{0x0206, 2, 1, 2},
+		{0, 0, 0, 0},
+	} {
+		vals := make([]uint16, 40)
+		vals[113-80] = tc.raw
+		rec := newRecorder()
+		_, err := Decode(inputFrame(80, vals), rec)
+		require.NoError(t, err)
+		assert.Equal(t, tc.role, rec.values["PARALLEL_ROLE"], "role %#x", tc.raw)
+		assert.Equal(t, tc.phase, rec.values["PARALLEL_PHASE"], "phase %#x", tc.raw)
+		assert.Equal(t, tc.n, rec.values["PARALLEL_NUM"], "num %#x", tc.raw)
+	}
+}
+
+func TestDecodeACCouplePower153(t *testing.T) {
+	// Block 120 (40 registers) and the 127 register read both cover 153.
+	for _, start := range []uint16{120, 127} {
+		vals := make([]uint16, 40)
+		if start == 127 {
+			vals = make([]uint16, 127)
+		}
+		vals[153-int(start)] = 1409
+		rec := newRecorder()
+		_, err := Decode(inputFrame(start, vals), rec)
+		require.NoError(t, err)
+		assert.Equal(t, int32(1409), rec.values["AC_COUPLE_POWER"], "start %d", start)
+	}
+}
+
+// A short block 127 read must not panic and must not report 153.
+func TestDecodeInput4LongShortFrame(t *testing.T) {
+	rec := newRecorder()
+	ReadInput4Long(make([]byte, 52), rec, "DL")
+	assert.NotContains(t, rec.values, "AC_COUPLE_POWER")
+}

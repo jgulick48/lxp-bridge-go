@@ -414,6 +414,7 @@ func ReadInput3(data []byte, callback ParserCallback, dataLogger string) {
 	callback.ReportValue(registers.InputRegisters[registers.T3], int32(binary.LittleEndian.Uint16(data[60:62])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.T4], int32(binary.LittleEndian.Uint16(data[62:64])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.T5], int32(binary.LittleEndian.Uint16(data[64:66])), dataLogger)
+	reportParallel(binary.LittleEndian.Uint16(data[66:68]), callback, dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.CONSUMPTION_POWER], int32(binary.LittleEndian.Uint16(data[68:70])), dataLogger)
 }
 
@@ -483,6 +484,9 @@ func ReadInput4Long(data []byte, callback ParserCallback, dataLogger string) {
 	callback.ReportValue(registers.InputRegisters[registers.AFCI_MAX_ARC_CH2], int32(binary.LittleEndian.Uint16(data[60:62])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.AFCI_MAX_ARC_CH3], int32(binary.LittleEndian.Uint16(data[62:64])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.AFCI_MAX_ARC_CH4], int32(binary.LittleEndian.Uint16(data[64:66])), dataLogger)
+	if len(data) >= 68 { // register 153
+		callback.ReportValue(registers.InputRegisters[registers.AC_COUPLE_POWER], int32(binary.LittleEndian.Uint16(data[66:68])), dataLogger)
+	}
 }
 func ReadInput4(data []byte, callback ParserCallback, dataLogger string) {
 	if len(data) < 80 {
@@ -517,6 +521,15 @@ func ReadInput4(data []byte, callback ParserCallback, dataLogger string) {
 	callback.ReportValue(registers.InputRegisters[registers.AFCI_MAX_ARC_CH2], int32(binary.LittleEndian.Uint16(data[60:62])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.AFCI_MAX_ARC_CH3], int32(binary.LittleEndian.Uint16(data[62:64])), dataLogger)
 	callback.ReportValue(registers.InputRegisters[registers.AFCI_MAX_ARC_CH4], int32(binary.LittleEndian.Uint16(data[64:66])), dataLogger)
+	callback.ReportValue(registers.InputRegisters[registers.AC_COUPLE_POWER], int32(binary.LittleEndian.Uint16(data[66:68])), dataLogger)
+}
+
+// reportParallel decodes input 113: bits 0-1 parallel role, bits 2-3 phase of
+// this unit, bits 8-15 number of units.
+func reportParallel(raw uint16, callback ParserCallback, dataLogger string) {
+	callback.ReportValue(registers.InputRegisters[registers.PARALLEL_ROLE], int32(raw&0x3), dataLogger)
+	callback.ReportValue(registers.InputRegisters[registers.PARALLEL_PHASE], int32(raw>>2&0x3), dataLogger)
+	callback.ReportValue(registers.InputRegisters[registers.PARALLEL_NUM], int32(raw>>8), dataLogger)
 }
 
 func uint16ToInt32(value uint16) int32 {
