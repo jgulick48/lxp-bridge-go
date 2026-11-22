@@ -8,13 +8,49 @@ import (
 )
 
 func TestParseModel(t *testing.T) {
-	for in, want := range map[string]Model{"": ModelDefault, "6000XP": Model6000XP, " 6000xp ": Model6000XP, "6000xp": Model6000XP} {
+	for in, want := range map[string]Model{"": ModelAuto, "auto": ModelAuto, "AUTO": ModelAuto, " auto ": ModelAuto,
+		"18KPV": Model18KPV, "18kpv": Model18KPV, "6000XP": Model6000XP, " 6000xp ": Model6000XP, "6000xp": Model6000XP} {
 		m, err := ParseModel(in)
 		require.NoError(t, err, in)
 		assert.Equal(t, want, m, in)
 	}
-	_, err := ParseModel("18kpv")
-	assert.Error(t, err)
+	_, err := ParseModel("foo")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "18kpv")
+	assert.Contains(t, err.Error(), "6000xp")
+	assert.Contains(t, err.Error(), "auto")
+}
+
+func TestDetectModel(t *testing.T) {
+	assert.Equal(t, Model6000XP, DetectModel(38))
+	assert.Equal(t, Model6000XP, DetectModel(54))
+	assert.Equal(t, Model18KPV, DetectModel(44))
+	assert.Equal(t, Model18KPV, DetectModel(0))
+}
+
+func TestResolveAuto(t *testing.T) {
+	for _, id := range []InputRegister{P_GEN, V_PV_3} {
+		_, ok := ModelAuto.Resolve(InputRegisters[id])
+		assert.False(t, ok, id.String())
+	}
+	for _, id := range []HoldRegister{Gen_Quick_Start, Gen_Rate_power} {
+		_, ok := ModelAuto.Resolve(HoldRegisters[id])
+		assert.False(t, ok, id.String())
+	}
+	tod := 0
+	for _, r := range HoldRegisters {
+		if r.TimeOfDay {
+			tod++
+			_, ok := ModelAuto.Resolve(r)
+			assert.False(t, ok, r.ShortName)
+		}
+	}
+	assert.NotZero(t, tod)
+	for _, id := range []InputRegister{SOC, V_GEN} {
+		r, ok := ModelAuto.Resolve(InputRegisters[id])
+		assert.True(t, ok, id.String())
+		assert.Equal(t, InputRegisters[id], r)
+	}
 }
 
 func TestResolve6000XPOmissions(t *testing.T) {
@@ -34,7 +70,7 @@ func TestResolve6000XPOmissions(t *testing.T) {
 		require.Equal(t, id.String(), r.ShortName)
 		_, ok := Model6000XP.Resolve(r)
 		assert.False(t, ok, id.String())
-		_, ok = ModelDefault.Resolve(r)
+		_, ok = Model18KPV.Resolve(r)
 		assert.True(t, ok, id.String())
 	}
 	assert.Len(t, omitted, 30)
@@ -45,7 +81,7 @@ func TestResolve6000XPOmissions(t *testing.T) {
 			tod++
 			_, ok := Model6000XP.Resolve(r)
 			assert.False(t, ok, r.ShortName)
-			_, ok = ModelDefault.Resolve(r)
+			_, ok = Model18KPV.Resolve(r)
 			assert.True(t, ok, r.ShortName)
 		}
 	}
@@ -54,7 +90,7 @@ func TestResolve6000XPOmissions(t *testing.T) {
 		r := HoldRegisters[id]
 		_, ok := Model6000XP.Resolve(r)
 		assert.False(t, ok, id.String())
-		_, ok = ModelDefault.Resolve(r)
+		_, ok = Model18KPV.Resolve(r)
 		assert.True(t, ok, id.String())
 	}
 }
@@ -76,7 +112,7 @@ func TestResolveGenRatePower(t *testing.T) {
 	assert.False(t, r.Writeable)
 	assert.Equal(t, Sensor, r.DiscoveryType())
 
-	r, ok = ModelDefault.Resolve(base)
+	r, ok = Model18KPV.Resolve(base)
 	require.True(t, ok)
 	assert.Equal(t, base, r)
 	assert.Equal(t, float32(0.1), r.Multiplier)

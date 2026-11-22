@@ -30,7 +30,21 @@ func roConfig(ro bool, cs models.ClockSyncConfig) models.Config {
 	}
 }
 
+// newRO builds a client with one fake inverter. An empty model means
+// auto-detection in production; here it defaults to the 18kPV layout so tests
+// not about detection keep their meaning. Use newROExact to keep it empty.
 func newRO(t *testing.T, cfg models.Config, m mqtt.Client, now func() time.Time) (*client, *fakeModbus, *fakeSink) {
+	t.Helper()
+	cfg.Inverters = append([]models.LXPConfig(nil), cfg.Inverters...)
+	for i := range cfg.Inverters {
+		if cfg.Inverters[i].Model == "" {
+			cfg.Inverters[i].Model = "18kpv"
+		}
+	}
+	return newROExact(t, cfg, m, now)
+}
+
+func newROExact(t *testing.T, cfg models.Config, m mqtt.Client, now func() time.Time) (*client, *fakeModbus, *fakeSink) {
 	t.Helper()
 	f := &fakeModbus{}
 	sink := &fakeSink{}

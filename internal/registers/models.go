@@ -2,6 +2,7 @@ package registers
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -10,21 +11,37 @@ import (
 type Model string
 
 const (
-	// ModelDefault is the EG4 18kPV layout every inverter used before models
+	// Model18KPV is the EG4 18kPV layout every inverter used before models
 	// were introduced.
-	ModelDefault Model = ""
+	Model18KPV Model = "18kpv"
 	// Model6000XP is the EG4 6000XP (off-grid, split-phase, 2 PV inputs).
 	Model6000XP Model = "6000xp"
+	// ModelAuto picks the layout from the inverter's device type code. Until
+	// the code has been read only registers that mean the same on every
+	// model are handled.
+	ModelAuto Model = "auto"
 )
 
 // ParseModel parses the model configuration value, ignoring case and
-// surrounding space. An empty value is the default model.
+// surrounding space. An empty value is ModelAuto.
 func ParseModel(s string) (Model, error) {
 	switch m := Model(strings.ToLower(strings.TrimSpace(s))); m {
-	case ModelDefault, Model6000XP:
+	case "", ModelAuto:
+		return ModelAuto, nil
+	case Model18KPV, Model6000XP:
 		return m, nil
 	}
-	return ModelDefault, fmt.Errorf("unknown model %q (expected empty or %q)", s, Model6000XP)
+	return ModelAuto, fmt.Errorf("unknown model %q (expected %q, %q or %q)", s, ModelAuto, Model18KPV, Model6000XP)
+}
+
+// DetectModel maps the device type code (holding register 19) to a model.
+// Codes 38 and 54 are the EG4 6000XP / 12000XP off-grid family (codes from
+// pylxpweb); anything else, such as 44 (18kPV), uses the 18kPV layout.
+func DetectModel(deviceType uint16) Model {
+	if deviceType == 38 || deviceType == 54 {
+		return Model6000XP
+	}
+	return Model18KPV
 }
 
 type regKey struct {
@@ -82,8 +99,17 @@ var omit6000XP = func() map[regKey]bool {
 // false when the model does not have it (the value must be dropped: not
 // published, no metric, no discovery, no writes).
 func (m Model) Resolve(r Register) (Register, bool) {
-	if m != Model6000XP {
+	switch m {
+	case Model18KPV:
 		return r, true
+	case ModelAuto:
+		// Not detected yet: only registers identical on every model.
+		a, aok := Model18KPV.Resolve(r)
+		b, bok := Model6000XP.Resolve(r)
+		if aok && bok && reflect.DeepEqual(a, b) {
+			return r, true
+		}
+		return r, false
 	}
 	// The time-of-day windows (holds 68-73, 76-81, 84-89) are not used.
 	if r.RegisterType == Hold && r.TimeOfDay {

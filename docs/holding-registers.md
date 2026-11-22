@@ -100,7 +100,7 @@ inverter screen or the EG4 app.
 
 ## EG4 6000XP
 
-With `model: 6000xp` the bridge does not announce or accept writes to:
+On an EG4 6000XP (layout chosen automatically from device type code 38 or 54, or with `model: 6000xp`) the bridge does not announce or accept writes to:
 
 * 110 bit 7 (`gen_quick_start`): on the 6000XP/12000XP this bit is the buzzer enable, not a generator quick start.
 * The 18 time windows (68-73, 76-81, 84-89).

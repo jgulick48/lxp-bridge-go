@@ -93,6 +93,13 @@ func newTest(t *testing.T, inverters []models.LXPConfig, now func() time.Time) (
 	t.Helper()
 	fakes := map[string]*fakeModbus{}
 	sink := &fakeSink{}
+	// An empty model means auto-detection; these tests want the 18kPV layout.
+	inverters = append([]models.LXPConfig(nil), inverters...)
+	for i := range inverters {
+		if inverters[i].Model == "" {
+			inverters[i].Model = "18kpv"
+		}
+	}
 	c, err := build(models.Config{
 		MQTTConfig: models.MQTTConfig{NameSpace: "lxp"},
 		Inverters:  inverters,
@@ -430,7 +437,7 @@ func newStatusTest(t *testing.T, haEnabled bool) (*client, *fakeModbus, *statusM
 	var fm *fakeModbus
 	c, err := build(models.Config{
 		MQTTConfig: models.MQTTConfig{NameSpace: "lxp", HomeAssistant: models.HomeAssistantConfig{Enabled: haEnabled, Prefix: "homeassistant"}},
-		Inverters:  []models.LXPConfig{{Enabled: true, DataLog: datalog, Serial: serial, HealthCheckDuration: time.Minute}},
+		Inverters:  []models.LXPConfig{{Enabled: true, DataLog: datalog, Serial: serial, HealthCheckDuration: time.Minute, Model: "18kpv"}},
 	}, deps{mqtt: m, now: func() time.Time { return now }, newModbus: func(models.LXPConfig, modbus.ParserCallback, modbus.Observer) (modbus.Client, error) {
 		fm = &fakeModbus{}
 		return fm, nil

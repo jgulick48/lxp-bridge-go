@@ -1,8 +1,10 @@
 package coordinator
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jgulick48/lxp-bridge-go/internal/modbus"
 	"github.com/jgulick48/lxp-bridge-go/internal/models"
@@ -23,7 +25,7 @@ func modelConfig(model string) models.Config {
 func newModel(t *testing.T, model string) (*client, *fakeModbus, *fakeSink, *recMQTT) {
 	t.Helper()
 	m := &recMQTT{msgs: map[string]string{}}
-	c, f, sink := newRO(t, modelConfig(model), m, nil)
+	c, f, sink := newROExact(t, modelConfig(model), m, nil)
 	return c, f, sink, m
 }
 
@@ -52,7 +54,7 @@ func TestReportValue6000XPDropsRegisters(t *testing.T) {
 	assert.Equal(t, "240", m.msgs["lxp/"+datalog+"/input/v_gen"])
 	assert.Contains(t, sink.gauges, "lxp_soc")
 
-	d, _, dsink, dm := newModel(t, "")
+	d, _, dsink, dm := newModel(t, "18kpv")
 	d.ReportValue(registers.InputRegisters[registers.P_GEN], 5, datalog)
 	assert.Equal(t, "5", dm.msgs["lxp/"+datalog+"/input/p_gen"])
 	assert.Contains(t, dsink.gauges, "lxp_p_gen")
@@ -64,7 +66,7 @@ func TestGenRatePowerScale(t *testing.T) {
 	assert.Equal(t, "7370", m.msgs["lxp/"+datalog+"/hold/gen_rate_power"])
 	assert.Equal(t, float64(7370), sink.gauges["lxp_gen_rate_power"])
 
-	d, _, dsink, dm := newModel(t, "")
+	d, _, dsink, dm := newModel(t, "18kpv")
 	d.ReportValue(registers.HoldRegisters[registers.Gen_Rate_power], 7370, datalog)
 	assert.Equal(t, "737", dm.msgs["lxp/"+datalog+"/hold/gen_rate_power"])
 	assert.InDelta(t, 737, dsink.gauges["lxp_gen_rate_power"], 0.01)
@@ -114,7 +116,7 @@ func TestDiscovery6000XP(t *testing.T) {
 }
 
 func TestDiscoveryDefaultModelUnchanged(t *testing.T) {
-	c, _, _, m := newModel(t, "")
+	c, _, _, m := newModel(t, "18kpv")
 	c.onMQTTConnect()
 	cfgs := discoveryConfigs(t, m)
 	for _, tc := range []struct{ component, name string }{
@@ -144,7 +146,7 @@ func TestHandleCommand6000XP(t *testing.T) {
 	c.HandleCommand(topic("21")+"/ac_charge_enable", []byte("1"))
 	assert.Len(t, f.sent(), 1)
 
-	d, df, _, _ := newModel(t, "")
+	d, df, _, _ := newModel(t, "18kpv")
 	d.HandleCommand(topic("110")+"/gen_quick_start", []byte("ON"))
 	assert.Len(t, df.sent(), 1) // reads the register first
 	d.ReportHolding(datalog, 110, []uint16{1056})
@@ -160,12 +162,22 @@ func TestModelHint(t *testing.T) {
 
 	vals := make([]uint16, 20)
 	vals[19] = 54
+	// Auto: one info line, once.
 	c, _, _, _ := newModel(t, "")
 	c.ReportHolding(datalog, 0, vals)
-	c.ReportHolding(datalog, 0, vals) // only once
+	c.ReportHolding(datalog, 0, vals)
+	require.Len(t, hook.AllEntries(), 1)
+	assert.Equal(t, logrus.InfoLevel, hook.LastEntry().Level)
+	assert.Contains(t, hook.LastEntry().Message, "device type code 54, using model 6000xp (auto-detected)")
+
+	// Forced 18kpv on a 6000XP family code: warn about the override, once.
+	hook.Reset()
+	c, _, _, _ = newModel(t, "18kpv")
+	c.ReportHolding(datalog, 0, vals)
+	c.ReportHolding(datalog, 0, vals)
 	require.Len(t, hook.AllEntries(), 1)
 	assert.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
-	assert.Contains(t, hook.LastEntry().Message, "set model: 6000xp")
+	assert.Contains(t, hook.LastEntry().Message, "overrides")
 
 	hook.Reset()
 	c, _, _, _ = newModel(t, "6000xp")
@@ -179,4 +191,150 @@ func TestModelHint(t *testing.T) {
 	hook.Reset()
 	c.ReportHolding(datalog, 20, vals) // does not cover 19
 	assert.Empty(t, hook.AllEntries())
+}
+
+func codeVals(code uint16) []uint16 {
+	v := make([]uint16, 40)
+	v[19] = code
+	return v
+}
+
+func TestAutoBeforeDetection(t *testing.T) {
+	c, _, _, m := newModel(t, "")
+	inv := c.inverters[datalog]
+	assert.Equal(t, registers.ModelAuto, inv.effectiveModel())
+	for _, id := range []registers.InputRegister{registers.P_GEN, registers.V_PV_3} {
+		c.ReportValue(registers.InputRegisters[id], 5, datalog)
+		assert.NotContains(t, m.msgs, "lxp/"+datalog+"/input/"+strings.ToLower(id.String()))
+	}
+	c.ReportValue(registers.InputRegisters[registers.SOC], 55, datalog)
+	c.ReportValue(registers.InputRegisters[registers.V_GEN], 2400, datalog)
+	assert.Equal(t, "55", m.msgs["lxp/"+datalog+"/input/soc"])
+	assert.Equal(t, "240", m.msgs["lxp/"+datalog+"/input/v_gen"])
+
+	c.onMQTTConnect()
+	assert.Empty(t, discoveryConfigs(t, m))
+	for topic := range m.msgs {
+		assert.False(t, strings.HasPrefix(topic, "homeassistant/"), topic)
+	}
+	assert.Contains(t, m.msgs, "lxp/"+datalog+"/status")
+}
+
+func TestDetect6000XP(t *testing.T) {
+	c, _, _, m := newModel(t, "")
+	c.onMQTTConnect()
+	c.ReportHolding(datalog, 0, codeVals(38))
+	assert.Equal(t, registers.Model6000XP, c.inverters[datalog].effectiveModel())
+
+	cfgs := discoveryConfigs(t, m)
+	js, ok := cfgs["homeassistant/sensor/lxp_"+datalog+"/gen_rate_power/config"]
+	require.True(t, ok)
+	assert.Equal(t, "W", js["unit_of_measurement"])
+	_, ok = cfgs["homeassistant/sensor/lxp_"+datalog+"/p_gen/config"]
+	assert.False(t, ok)
+	v, ok := announced(m, "sensor", "p_gen")
+	assert.True(t, ok && v == "", "p_gen config should be cleared")
+
+	c.ReportValue(registers.InputRegisters[registers.P_GEN], 5, datalog)
+	assert.NotContains(t, m.msgs, "lxp/"+datalog+"/input/p_gen")
+	c.ReportValue(registers.HoldRegisters[registers.Gen_Rate_power], 7370, datalog)
+	assert.Equal(t, "7370", m.msgs["lxp/"+datalog+"/hold/gen_rate_power"])
+}
+
+func TestDetect18KPV(t *testing.T) {
+	c, _, _, m := newModel(t, "")
+	c.ReportHolding(datalog, 0, codeVals(44))
+	assert.Equal(t, registers.Model18KPV, c.inverters[datalog].effectiveModel())
+	_, ok := discoveryConfigs(t, m)["homeassistant/switch/lxp_"+datalog+"/gen_quick_start/config"]
+	assert.True(t, ok)
+	c.ReportValue(registers.InputRegisters[registers.P_GEN], 5, datalog)
+	assert.Equal(t, "5", m.msgs["lxp/"+datalog+"/input/p_gen"])
+}
+
+func TestDetectionHappensOnce(t *testing.T) {
+	c, _, _, _ := newModel(t, "")
+	c.ReportHolding(datalog, 0, codeVals(38))
+	c.ReportHolding(datalog, 0, codeVals(44))
+	assert.Equal(t, registers.Model6000XP, c.inverters[datalog].effectiveModel())
+}
+
+func TestNoDiscoveryWhenHADisabled(t *testing.T) {
+	cfg := modelConfig("")
+	cfg.MQTTConfig.HomeAssistant.Enabled = false
+	m := &recMQTT{msgs: map[string]string{}}
+	c, _, _ := newROExact(t, cfg, m, nil)
+	c.ReportHolding(datalog, 0, codeVals(38))
+	assert.Empty(t, discoveryConfigs(t, m))
+}
+
+func TestHandleCommandBeforeDetection(t *testing.T) {
+	topic := "lxp/cmd/" + datalog + "/set/hold/21/ac_charge_enable"
+	c, f, _, _ := newModel(t, "")
+	c.HandleCommand(topic, []byte("1"))
+	assert.Empty(t, f.sent())
+	assert.Empty(t, c.inverters[datalog].pending)
+
+	c.ReportHolding(datalog, 0, codeVals(44))
+	c.HandleCommand(topic, []byte("1"))
+	assert.Len(t, f.sent(), 1)
+}
+
+func TestHandleCommandAutoRejectReason(t *testing.T) {
+	hook := logtest.NewGlobal()
+	defer hook.Reset()
+	old := logrus.GetLevel()
+	logrus.SetLevel(logrus.WarnLevel)
+	defer logrus.SetLevel(old)
+	c, _, _, _ := newModel(t, "")
+	c.HandleCommand("lxp/cmd/"+datalog+"/set/hold/21/ac_charge_enable", []byte("1"))
+	require.NotNil(t, hook.LastEntry())
+	assert.Contains(t, hook.LastEntry().Message, "model not detected yet")
+}
+
+func TestExplicit18KPVNeedsNoDetection(t *testing.T) {
+	c, _, _, m := newModel(t, "18kpv")
+	c.ReportValue(registers.InputRegisters[registers.P_GEN], 5, datalog)
+	assert.Equal(t, "5", m.msgs["lxp/"+datalog+"/input/p_gen"])
+	c.onMQTTConnect()
+	_, ok := discoveryConfigs(t, m)["homeassistant/switch/lxp_"+datalog+"/gen_quick_start/config"]
+	assert.True(t, ok)
+}
+
+func TestRequestDeviceTypeFrame(t *testing.T) {
+	c, f, _, _ := newModel(t, "")
+	c.requestDeviceType(c.inverters[datalog])
+	require.Len(t, f.sent(), 1)
+	assert.Equal(t, modbus.BuildPacket(datalog, serial, 0, 0x3, 19, modbus.GetBytesForUInt16(1)...), f.sent()[0])
+}
+
+func TestDeviceTypeReplyDetects(t *testing.T) {
+	c, _, _, _ := newModel(t, "")
+	_, err := modbus.Decode(response(0x3, 19, []uint16{38}), c)
+	require.NoError(t, err)
+	assert.Equal(t, registers.Model6000XP, c.inverters[datalog].effectiveModel())
+}
+
+func TestPollingRequestsDeviceType(t *testing.T) {
+	for _, tc := range []struct {
+		model string
+		want  int
+	}{{"", 1}, {"18kpv", 0}} {
+		cfg := modelConfig(tc.model)
+		off := -1 * time.Second
+		cfg.Inverters[0].ShortRead, cfg.Inverters[0].LongRead, cfg.Inverters[0].HoldRead = off, off, off
+		c, f, _ := newROExact(t, cfg, &recMQTT{msgs: map[string]string{}}, nil)
+		f.connected = true
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() { c.setupPolling(ctx, c.inverters[datalog]); close(done) }()
+		if tc.want > 0 {
+			require.Eventually(t, func() bool { return len(f.sent()) >= 1 }, 4*time.Second, 50*time.Millisecond)
+			assert.Equal(t, modbus.BuildPacket(datalog, serial, 0, 0x3, 19, modbus.GetBytesForUInt16(1)...), f.sent()[0])
+		} else {
+			time.Sleep(1500 * time.Millisecond)
+			assert.Empty(t, f.sent())
+		}
+		cancel()
+		<-done
+	}
 }

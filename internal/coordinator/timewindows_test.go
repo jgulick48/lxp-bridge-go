@@ -15,7 +15,7 @@ func TestTimeWindowStates(t *testing.T) {
 	sink := &fakeSink{}
 	c, err := build(models.Config{
 		MQTTConfig: models.MQTTConfig{NameSpace: "lxp"},
-		Inverters:  []models.LXPConfig{{Enabled: true, DataLog: datalog, Serial: serial}},
+		Inverters:  []models.LXPConfig{{Enabled: true, DataLog: datalog, Serial: serial, Model: "18kpv"}},
 	}, deps{mqtt: m, metrics: sink, newModbus: func(models.LXPConfig, modbus.ParserCallback, modbus.Observer) (modbus.Client, error) {
 		return &fakeModbus{}, nil
 	}})

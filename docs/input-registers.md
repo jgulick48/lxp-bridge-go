@@ -180,7 +180,7 @@ These registers come back in the blocks the bridge reads but are not decoded.
 
 ## EG4 6000XP
 
-Set `model: 6000xp` on the inverter. Some registers hold other data on that model (register dumps in
+The layout is chosen automatically (device type code 38 or 54) or with `model: 6000xp`. Some registers hold other data on that model (register dumps in
 [issue #38](https://github.com/jgulick48/lxp-bridge-go/issues/38)), so the bridge does not publish or announce them,
 and clears their retained Home Assistant entities. `v_gen` and `f_gen` are kept.
 
