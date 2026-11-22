@@ -52,6 +52,7 @@ inverters:
     short_read: 30s          # input blocks 0, 40, 120 and 160-204
     long_read: 30s           # input block 80 (BMS data)
     hold_read: 15m           # settings
+    # model: auto           # or 18kpv / 6000xp
     health_check_duration: 3m
 mqtt:
   enabled: true
@@ -142,6 +143,14 @@ Per inverter (`inverters[]`):
 * `hold_read`: how often the holding (settings) registers are read (default 15m, `-1s` disables). When enabled they
   are also read every time the inverter connects.
 * `publish_holdings_on_connect`: read the holding registers every time the inverter connects, even with `hold_read: -1s`.
+* `model`: register layout, case-insensitive. `auto` (default, also when empty) reads the device type code (holding 19)
+  on connect and picks the layout: 38 or 54 (EG4 6000XP / 12000XP) selects `6000xp`, anything else `18kpv` (EG4
+  18kPV/12kPV). Until the code has been read, only registers that mean the same on every model are published, and Home
+  Assistant discovery for that inverter waits. The bridge reads holding 19 on connect even when `hold_read` is
+  disabled, retrying every 30s until it gets an answer, also in read-only mode (it is a read). `18kpv` or `6000xp`
+  force a layout; a warning is logged when the forced layout does not match the code. `6000xp` drops the registers
+  that hold other data on that model (see [input registers](docs/input-registers.md#eg4-6000xp)) and reads
+  `gen_rate_power` in W.
 * `health_check_duration`: default 5m, see below.
 * `crc_mode`:
   * `log` (default): translated-data frames are CRC16/MODBUS checked; a mismatch is counted (`result:crc_error`) and logged at debug, but the frame is still decoded.

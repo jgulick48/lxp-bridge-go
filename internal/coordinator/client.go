@@ -51,6 +51,14 @@ type Client interface {
 type inverter struct {
 	client modbus.Client
 	config models.LXPConfig
+	model  registers.Model // as configured; may be ModelAuto
+
+	// detected is the model chosen from the device type code when model is
+	// ModelAuto. It has its own lock because it is written by the read loop
+	// and read by the MQTT goroutine, and mu must not be held while
+	// publishing discovery.
+	detMu    sync.RWMutex
+	detected registers.Model
 
 	// mu guards hold and pending, which are written by the inverter read
 	// loop and by MQTT commands.
@@ -58,6 +66,22 @@ type inverter struct {
 	hold    map[uint16]uint16      // last raw value of each holding register
 	pending map[uint16]*fieldWrite // bit field changes waiting for a fresh read
 	clock   clockState
+	// modelHintLogged is set once the device type code has been logged.
+	modelHintLogged bool
+}
+
+// effectiveModel is the configured model, or for ModelAuto the detected one
+// (ModelAuto while nothing has been detected).
+func (inv *inverter) effectiveModel() registers.Model {
+	if inv.model != registers.ModelAuto {
+		return inv.model
+	}
+	inv.detMu.RLock()
+	defer inv.detMu.RUnlock()
+	if inv.detected == "" {
+		return registers.ModelAuto
+	}
+	return inv.detected
 }
 
 // fieldWrite is a change to part of a holding register. It is applied to the
@@ -173,6 +197,10 @@ func build(config models.Config, d deps) (*client, error) {
 		if _, dup := c.inverters[modConfig.DataLog]; dup {
 			return nil, fmt.Errorf("duplicate datalog %q in config", modConfig.DataLog)
 		}
+		model, err := registers.ParseModel(modConfig.Model)
+		if err != nil {
+			return nil, fmt.Errorf("inverter %s: invalid model: %w", modConfig.DataLog, err)
+		}
 		mc, err := d.newModbus(modConfig, c, &observer{c: c, tags: []string{metrics.FormatTag("deploymentID", modConfig.DataLog)}})
 		if err != nil {
 			return nil, fmt.Errorf("inverter %s: %w", modConfig.DataLog, err)
@@ -197,7 +225,7 @@ func build(config models.Config, d deps) (*client, error) {
 		} else if modConfig.ClockSync.Enabled {
 			return nil, fmt.Errorf("inverter %s: clock_sync is enabled but clock_sync.timezone is not set (IANA name such as America/Denver)", modConfig.DataLog)
 		}
-		c.inverters[modConfig.DataLog] = &inverter{client: mc, config: modConfig, hold: map[uint16]uint16{}, pending: map[uint16]*fieldWrite{}, clock: cs}
+		c.inverters[modConfig.DataLog] = &inverter{client: mc, config: modConfig, model: model, hold: map[uint16]uint16{}, pending: map[uint16]*fieldWrite{}, clock: cs}
 		c.order = append(c.order, modConfig.DataLog)
 	}
 	return c, nil
@@ -309,7 +337,12 @@ func (c *client) onMQTTConnect() {
 		return
 	}
 	for _, id := range c.order {
-		c.reportHomeAssistant(c.inverters[id].config)
+		inv := c.inverters[id]
+		if inv.effectiveModel() == registers.ModelAuto {
+			logrus.Debugf("inverter %s: model not detected yet, deferring Home Assistant discovery", inv.config.DataLog)
+			continue
+		}
+		c.reportHomeAssistant(inv)
 	}
 }
 
@@ -426,6 +459,12 @@ func (o *observer) Frame(result string) {
 }
 
 func (c *client) ReportValue(register registers.Register, value int32, dataLogger string) {
+	if inv, ok := c.inverters[dataLogger]; ok {
+		var have bool
+		if register, have = inv.effectiveModel().Resolve(register); !have {
+			return
+		}
+	}
 	topic := fmt.Sprintf("%s/%s/%s/%s", c.config.MQTTConfig.NameSpace, dataLogger, strings.ToLower(register.RegisterType.String()), strings.ToLower(register.ShortName))
 	if register.TimeOfDay {
 		// A time of day is a label, not a measurement: no gauge.
@@ -534,6 +573,16 @@ func (c *client) HandleCommand(topic string, message []byte) {
 		reject("unexpected topic")
 		return
 	}
+	model := inv.effectiveModel()
+	if model == registers.ModelAuto {
+		reject("model not detected yet")
+		return
+	}
+	register, ok = model.Resolve(register)
+	if !ok {
+		reject("register %d (%s) is not available on model %s", registerID, register.ShortName, model)
+		return
+	}
 	if !controllable(register) {
 		reject("register %d (%s) is not writable from Home Assistant", registerID, register.ShortName)
 		return
@@ -630,6 +679,39 @@ func (c *client) queueFieldWrite(inv *inverter, addr uint16, register registers.
 	inv.client.SendCommand(modbus.BuildPacket(inv.config.DataLog, inv.config.Serial, 0, 0x3, addr, modbus.GetBytesForUInt16(1)...))
 }
 
+// deviceTypeReg is the holding register with the device type code.
+const deviceTypeReg = 19
+
+// logModelHint logs the device type code once per inverter. For a model that
+// was configured explicitly it warns when the code points at another layout.
+func logModelHint(inv *inverter, code uint16) {
+	dl := inv.config.DataLog
+	detected := registers.DetectModel(code)
+	switch {
+	case inv.model == registers.ModelAuto:
+		logrus.Infof("inverter %s: device type code %d, using model %s (auto-detected)", dl, code, detected)
+	case inv.model != detected:
+		logrus.Warnf("inverter %s is configured as model %s but reports device type code %d (looks like %s); the configured model overrides the detected one", dl, inv.model, code, detected)
+	default:
+		logrus.Infof("inverter %s device type code %d", dl, code)
+	}
+}
+
+// detectModel records the model for an auto inverter the first time the
+// device type code is seen. It reports whether it did.
+func (inv *inverter) detectModel(code uint16) bool {
+	if inv.model != registers.ModelAuto {
+		return false
+	}
+	inv.detMu.Lock()
+	defer inv.detMu.Unlock()
+	if inv.detected != "" {
+		return false
+	}
+	inv.detected = registers.DetectModel(code)
+	return true
+}
+
 // ReportHolding receives raw holding register values from the inverter. It
 // caches them and writes any pending bit field changes on top of the fresh
 // values.
@@ -639,8 +721,23 @@ func (c *client) ReportHolding(dataLogger string, start uint16, values []uint16)
 		return
 	}
 	now := c.now()
+	announce := false
+	// Registered first so it runs after inv.mu is released.
+	defer func() {
+		if announce && c.config.MQTTConfig.HomeAssistant.Enabled {
+			c.reportHomeAssistant(inv)
+		}
+	}()
 	inv.mu.Lock()
 	defer inv.mu.Unlock()
+	if start <= deviceTypeReg && int(start)+len(values) > deviceTypeReg {
+		code := values[deviceTypeReg-int(start)]
+		announce = inv.detectModel(code)
+		if !inv.modelHintLogged {
+			inv.modelHintLogged = true
+			logModelHint(inv, code)
+		}
+	}
 	for i, v := range values {
 		addr := start + uint16(i)
 		inv.hold[addr] = v
@@ -692,7 +789,9 @@ func rawValue(register registers.Register, payload string) (int64, error) {
 	return int64(rounded), nil
 }
 
-func (c *client) reportHomeAssistant(config models.LXPConfig) {
+func (c *client) reportHomeAssistant(inv *inverter) {
+	config := inv.config
+	model := inv.effectiveModel()
 	device := registers.Device{
 		Manufacturer: "LuxPower",
 		Name:         fmt.Sprintf("%s_%s", c.config.MQTTConfig.NameSpace, config.DataLog),
@@ -702,26 +801,56 @@ func (c *client) reportHomeAssistant(config models.LXPConfig) {
 	configTopic := func(t registers.HomeAssistantType, register registers.Register) string {
 		return fmt.Sprintf("%s/%s/%s/%s/config", prefix, strings.ToLower(t.String()), device.Name, strings.ToLower(register.ShortName))
 	}
-	publish := func(id int, register registers.Register) {
+	clear := func(topic string) {
+		if err := c.mqtt.SendMessage(topic, "", true); err != nil {
+			logrus.Errorf("Error clearing stale entity from homeassistant %s", err.Error())
+		}
+	}
+	publish := func(id int, base registers.Register) {
+		register, ok := model.Resolve(base)
+		var stale []string // topics an earlier run may have left retained
+		addBase := func() {
+			stale = append(stale, configTopic(base.DiscoveryType(), base))
+			if base.Writeable {
+				readOnlyBase := base.AsReadOnly()
+				stale = append(stale, configTopic(readOnlyBase.DiscoveryType(), base))
+			}
+		}
+		if !ok {
+			// The model does not have this register: remove any entity an
+			// install made before the model was set.
+			addBase()
+			for _, t := range stale {
+				clear(t)
+			}
+			return
+		}
 		if register.Writeable {
 			// A writable register is announced as a control normally and as a
 			// sensor in read-only mode. Clear whichever variant an earlier run
 			// with the other setting left retained, so Home Assistant removes
 			// it instead of showing the register twice.
 			readOnly := register.AsReadOnly()
-			stale := readOnly
+			other := readOnly
 			if c.config.ReadOnly {
-				stale = register
+				other = register
 				register = readOnly
 			}
-			if stale.DiscoveryType() != register.DiscoveryType() {
-				if err := c.mqtt.SendMessage(configTopic(stale.DiscoveryType(), stale), "", true); err != nil {
-					logrus.Errorf("Error clearing stale entity from homeassistant %s", err.Error())
-				}
+			stale = append(stale, configTopic(other.DiscoveryType(), other))
+		}
+		if register.DiscoveryType() != base.DiscoveryType() {
+			addBase()
+		}
+		target := configTopic(register.DiscoveryType(), register)
+		done := map[string]bool{target: true}
+		for _, t := range stale {
+			if !done[t] {
+				done[t] = true
+				clear(t)
 			}
 		}
 		registerString, _ := json.Marshal(register.ToJson(id, device, c.config.MQTTConfig.NameSpace, config.DataLog))
-		if err := c.mqtt.SendMessage(configTopic(register.DiscoveryType(), register), registerString, true); err != nil {
+		if err := c.mqtt.SendMessage(target, registerString, true); err != nil {
 			logrus.Errorf("Error sending sensor config to homeassistant %s", err.Error())
 		}
 	}
@@ -738,6 +867,16 @@ func (c *client) sendHoldingPolls(inv *inverter) {
 	for _, start := range []uint16{0, 40, 80, 120, 160, 200} {
 		inv.client.SendCommand(modbus.BuildPacket(inv.config.DataLog, inv.config.Serial, 0, 0x3, start, n...))
 	}
+}
+
+// deviceTypeRequestInterval is how often holding 19 is requested while an
+// auto model inverter has not been detected.
+const deviceTypeRequestInterval = 30 * time.Second
+
+// requestDeviceType reads holding 19 (the device type code) on its own. It is
+// a read, so it is also sent in read-only mode.
+func (c *client) requestDeviceType(inv *inverter) {
+	inv.client.SendCommand(modbus.BuildPacket(inv.config.DataLog, inv.config.Serial, 0, 0x3, deviceTypeReg, modbus.GetBytesForUInt16(1)...))
 }
 
 // inputBlockLength is how many registers to read from start. Block 160 is
@@ -774,6 +913,7 @@ func (c *client) setupPolling(ctx context.Context, inv *inverter) {
 	defer connCheck.Stop()
 
 	wasConnected := false
+	var lastTypeReq time.Time
 	poll := func(function byte, starts ...uint16) {
 		if !inv.client.Connected() {
 			logrus.Debugf("Not connected to %s, skipping poll", cfg.DataLog)
@@ -801,9 +941,20 @@ func (c *client) setupPolling(ctx context.Context, inv *inverter) {
 		case <-connCheck.C:
 			// Read the holding registers each time the inverter (re)connects.
 			connected := inv.client.Connected()
+			sentHolds := false
 			if connected && !wasConnected && (cfg.PublishHoldingsOnConnect || holdEnabled) {
 				logrus.Debugf("Requesting holding registers from %s", cfg.DataLog)
 				c.sendHoldingPolls(inv)
+				sentHolds = true
+				lastTypeReq = c.now()
+			}
+			if connected && inv.effectiveModel() == registers.ModelAuto {
+				// The layout is unknown until holding 19 has been read.
+				if !sentHolds && (!wasConnected || c.now().Sub(lastTypeReq) >= deviceTypeRequestInterval) {
+					logrus.Debugf("Requesting device type from %s", cfg.DataLog)
+					c.requestDeviceType(inv)
+					lastTypeReq = c.now()
+				}
 			}
 			wasConnected = connected
 		case <-ctx.Done():
