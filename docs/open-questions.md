@@ -21,9 +21,16 @@ only bit 7 changed, which is what the `gen_quick_start` switch does.
 This confirms that input 105 bit 3 is the generator dry contact (not bit 4 as pylxpweb documents) and that bit 2 is the
 cool-down. The generator voltage was still 242 V after the contact opened, so the generator has its own shutdown delay.
 
-**Still to confirm:** whether the inverter clears holding 110 bit 7 by itself after an uninterrupted 20 minute run, and
-how the cool-down length relates to holding 237 (`gen_cool_down_time`, 30, which is 3.0 minutes in 0.1 minute units; about 2 minutes was
-observed, but block 80 is only read every `long_read`).
+**Still to confirm:** whether the inverter clears holding 110 bit 7 by itself after an uninterrupted 20 minute run.
+
+## Generator reconnect delay: holding 237 (confirmed)
+
+Holding 237 (`gen_cool_down_time`, 0.1 minute units) is not how long the dry contact stays closed. It is how long the
+inverter waits after it opens the dry contact before it takes power from the generator again. Over four generator runs
+with 237 at 30 (3.0 minutes), the inverter took generator power again 2:40 to 3:00 after the contact opened (20-second
+samples), while the generator's own cool-down ran about 5 minutes and so got loaded. EG4's firmware release notes give
+the same meaning. Changing holding 24 (`reconnect_time`) from 300 to 600 did not change the timing. Set 237 longer than
+the generator's own cool-down (here 50, 5.0 minutes).
 
 ## Per-leg generator voltage and rectifier power: inputs 195-196 and 199-200
 

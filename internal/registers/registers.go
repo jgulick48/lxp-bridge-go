@@ -963,12 +963,16 @@ var HoldRegisters = map[HoldRegister]Register{
 		Max:               1,
 		Writeable:         true,
 	},
-	// Gen_Cool_Down_Time is how long the inverter keeps the generator dry
-	// contact closed after a stop, in 0.1 minute units.
+	// Gen_Cool_Down_Time is how long the inverter waits after it opens the
+	// generator dry contact before it takes power from the generator again,
+	// in 0.1 minute units (30 is 3.0 minutes). If the generator's own
+	// cool-down outlasts it, the inverter loads the generator while it is
+	// shutting down. ShortName stays gen_cool_down_time so Home Assistant
+	// entity IDs don't change.
 	Gen_Cool_Down_Time: {
 		RegisterType:      Hold,
 		ShortName:         Gen_Cool_Down_Time.String(),
-		Name:              "Generator Cool Down Time",
+		Name:              "Generator Reconnect Delay",
 		HomeAssistantType: Number,
 		Multiplier:        0.1,
 		Unit:              "min",
@@ -2177,8 +2181,9 @@ var InputRegisters = map[InputRegister]Register{
 		EntityCategory: "diagnostic",
 		Multiplier:     1,
 	},
-	// GEN_COOL_DOWN is bit 2 of input 105: 1 after a generator stop while the
-	// inverter keeps the dry contact closed for the cool-down time.
+	// GEN_COOL_DOWN is bit 2 of input 105. It was seen set for about 2
+	// minutes after a generator stop, clearing together with the dry contact
+	// bit. Its exact meaning is not verified; it is not the holding 237 delay.
 	GEN_COOL_DOWN: {
 		RegisterType:      Input,
 		ShortName:         GEN_COOL_DOWN.String(),

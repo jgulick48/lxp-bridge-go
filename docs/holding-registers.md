@@ -72,7 +72,7 @@ bridge reads the register, changes only those bits, and writes it back. See [pol
 | 202 |  | `stop_discharge_volt` | Stop Discharge Voltage | number | 0.1 | V | 40 to 56 | `set/hold/202` | 400 |  |
 | 233 | 0 | `quick_charge_enable` | Quick Charge Enable | switch | 1 |  | 0 / 1 | `set/hold/233/quick_charge_enable` | 0 |  |
 | 234 |  | `quick_charge_minute` | Quick Charge Time | number | 1 | min | 0 to 1440 | `set/hold/234` | 0 | Also counts down the remaining minutes while a quick charge runs. |
-| 237 |  | `gen_cool_down_time` | Generator Cool Down Time | number | 0.1 | min | 0.1 to 25.5 | `set/hold/237` | 30 | How long the dry contact stays closed after a generator stop. 30 is 3.0 minutes. |
+| 237 |  | `gen_cool_down_time` | Generator Reconnect Delay | number | 0.1 | min | 0.1 to 25.5 | `set/hold/237` | 30 | How long the inverter waits after it opens the generator dry contact before it takes power from the generator again. 30 is 3.0 minutes. Set it longer than the generator's own cool-down, or the inverter loads the generator while it shuts down. Holding 23/24 do not affect this delay. |
 
 ## Known settings that are not exposed
 

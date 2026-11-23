@@ -103,7 +103,7 @@ the generator with no grid connected.
 | 103 | `max_cell_temp` | Maximum Cell Temperature | 0.1 | °C | long | 300 | Signed. |
 | 104 | `min_cell_temp` | Minimum Cell Temperature | 0.1 | °C | long | 260 | Signed. |
 | 105 | `bms_fw_update_state` | BMS Firmware Update State | 1 |  | long | 8 | Bits 0-1 of register 105: 1 upgrading, 2 upgrade done, 3 upgrade failed. Bits 2 and 3 are the generator state below. |
-| 105 | `gen_cool_down` | Generator Cooling Down | 1 |  | long | 0 | Bit 2 of register 105. 1 after a generator stop while the dry contact is held closed for the cool-down time (holding 237, 0.1 min). Seen for about 2 minutes after a stop. |
+| 105 | `gen_cool_down` | Generator Cooling Down | 1 |  | long | 0 | Bit 2 of register 105. Seen set for about 2 minutes after a generator stop, clearing together with the dry contact bit. Exact meaning not verified; it is not the holding 237 delay, which starts after the contact opens. |
 | 105 | `gen_dry_contact` | Generator Dry Contact | 1 |  | long | 8 | Bit 3 of register 105. 1 while the inverter is running the generator through its dry contact. Confirmed: it went from 0 to 1 four seconds after a generator quick start, and back to 0 at the end of the cool-down after a stop. |
 | 106 | `cycle_cnt_bms` | Number of Charge and Discharge Cycles | 1 |  | long | 304 |  |
 | 107 | `bat_volt_smpl_inv` | Inverter Battery Voltage Sample | 0.1 | V | long | 533 | Scale was 0.001 before this version, which published 0.5 V instead of 53 V. |
