@@ -230,6 +230,46 @@ Diagnostic section, because Home Assistant does not allow the config category on
 controls disappear from Home Assistant. Turning `read_only` off again clears those read-only sensors in the same way,
 so each setting is never shown twice.
 
+### Mirroring a dongle to other clients
+A WiFi dongle copes badly with several clients polling it: it can go quiet for minutes at a time or drop off WiFi.
+Instead, one bridge polls the dongle and publishes what it gets, and a **mirror** serves that to the other clients,
+which connect to the mirror as if it were the dongle.
+
+On the bridge that polls the dongle:
+
+```yaml
+mqtt:
+  publish_raw_frames: true    # each valid read reply, as received, retained:
+                              #   <namespace>/<datalog>/raw/<function>/<start register>
+                              #   {"t": <Unix ms>, "frame": "<hex>"}
+```
+
+The mirror is the same image with a `mirror:` section (the rest of the config is ignored):
+
+```yaml
+mirror:
+  enabled: true
+  datalog: BA12345678
+  listen: 0.0.0.0:8000        # default
+  input_max_age: 2m           # default: older input frames aren't served
+  hold_max_age: 24h           # default, for settings (re-read every 15 minutes by the bridge)
+  max_clients: 4              # default
+  mqtt:                       # the broker the bridge publishes to; host, port, namespace, clientName, tls as above
+    host: mqtt.example.com
+    port: 8883
+    tls: {enabled: true, cert_file: /tls/tls.crt, key_file: /tls/tls.key}
+```
+
+A client's read request for a block is answered with the newest frame the bridge published for it, byte for byte, as
+long as it is fresh. Replies are keyed by function and start register only, so clients must read the same blocks the
+bridge polls (input 0, 40, 80, 120 and 160; holding 0 to 200 in steps of 40); a request for any other start register
+gets no answer. Keep `input_max_age` longer than the bridge's `short_read` and `long_read`. Writes are dropped: a mirror never changes the inverter, so point only read-only clients at it.
+When the bridge stops getting data its frames go stale and the mirror stops answering, so its clients see the
+inverter offline at the same time. The mirror only subscribes (no will, no publishes), so it can't disturb the
+bridge's status topics; giving its MQTT login read access to `<namespace>/<datalog>/raw/#` only is enough.
+`/health` is `204` while the newest input frame is fresh; `/metrics` has `lxp_mirror_received`, `_served`, `_stale`,
+`_writes_dropped`, `_clients` and `_fresh`.
+
 ### Building
 Version information is injected with `-ldflags "-X main.version=<v> -X main.commit=<sha>"` and logged at startup.
 

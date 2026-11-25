@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -710,6 +711,33 @@ func (inv *inverter) detectModel(code uint16) bool {
 	}
 	inv.detected = registers.DetectModel(code)
 	return true
+}
+
+// RawFrame is the payload of a <namespace>/<datalog>/raw/<function>/<register> message: when the frame arrived
+// (Unix ms) and the frame itself, hex encoded.
+type RawFrame struct {
+	Time  int64  `json:"t"`
+	Frame string `json:"frame"`
+}
+
+// RawTopic is where a read reply's raw frame is published.
+func RawTopic(namespace, dataLogger string, function byte, register uint16) string {
+	return fmt.Sprintf("%s/%s/raw/%d/%d", namespace, dataLogger, function, register)
+}
+
+// ReportRawFrame publishes a valid read reply as received (mqtt.publish_raw_frames), retained, for a mirror.
+func (c *client) ReportRawFrame(dataLogger string, function byte, register uint16, frame []byte) {
+	if !c.config.MQTTConfig.PublishRawFrames || !c.mqtt.IsEnabled() {
+		return
+	}
+	if _, ok := c.inverters[dataLogger]; !ok {
+		return
+	}
+	payload, err := json.Marshal(RawFrame{Time: c.now().UnixMilli(), Frame: hex.EncodeToString(frame)})
+	if err != nil {
+		return
+	}
+	_ = c.mqtt.SendMessage(RawTopic(c.config.MQTTConfig.NameSpace, dataLogger, function, register), payload, true)
 }
 
 // ReportHolding receives raw holding register values from the inverter. It

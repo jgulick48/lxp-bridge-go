@@ -83,3 +83,11 @@ func plaintextCredentialsRisk(c models.MQTTConfig) bool {
 	}
 	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast())
 }
+
+// BrokerURL is the paho broker URL for these settings (for clients outside this package, e.g. the mirror).
+func BrokerURL(c models.MQTTConfig) string { return brokerURL(c) }
+
+// TLSConfig builds the *tls.Config for mqtt.tls settings and the broker host.
+func TLSConfig(c models.MQTTTLSConfig, host string) (*tls.Config, error) {
+	return buildTLSConfig(c, host)
+}
