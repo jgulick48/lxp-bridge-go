@@ -15,6 +15,24 @@ type Config struct {
 	Prometheus   PrometheusConfig `yaml:"prometheus"`
 	Inverters    []LXPConfig      `yaml:"inverters"`
 	OpenEVSE     OpenEVSEConfig   `yaml:"openEVSE"`
+	// Mirror, when enabled, runs a read-only dongle mirror instead of the bridge (see internal/mirror).
+	Mirror MirrorConfig `yaml:"mirror"`
+}
+
+// MirrorConfig serves one dongle's frames, taken from MQTT, to LuxPower clients on Listen.
+type MirrorConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// DataLog is the datalogger serial to mirror.
+	DataLog string `yaml:"datalog"`
+	// MQTT is the broker the source bridge publishes raw frames to (host, port, tls, namespace, clientName).
+	MQTT MQTTConfig `yaml:"mqtt"`
+	// Listen is where clients connect, as to a dongle (default 0.0.0.0:8000).
+	Listen string `yaml:"listen"`
+	// InputMaxAge and HoldMaxAge: older frames aren't served (defaults 2m and 24h).
+	InputMaxAge time.Duration `yaml:"input_max_age"`
+	HoldMaxAge  time.Duration `yaml:"hold_max_age"`
+	// MaxClients connected at once (default 4).
+	MaxClients int `yaml:"max_clients"`
 }
 
 type MQTTConfig struct {
@@ -27,6 +45,9 @@ type MQTTConfig struct {
 	NameSpace     string              `yaml:"namespace"`
 	HomeAssistant HomeAssistantConfig `yaml:"homeassistant"`
 	TLS           MQTTTLSConfig       `yaml:"tls"`
+	// PublishRawFrames publishes every valid read reply from the dongle, as received, to
+	// <namespace>/<datalog>/raw/<function>/<start register> (retained), for a mirror to serve.
+	PublishRawFrames bool `yaml:"publish_raw_frames"`
 }
 
 // MQTTTLSConfig configures TLS (and mutual TLS) for the broker connection.

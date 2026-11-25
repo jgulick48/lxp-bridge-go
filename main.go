@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jgulick48/lxp-bridge-go/internal/coordinator"
+	"github.com/jgulick48/lxp-bridge-go/internal/mirror"
 	"github.com/jgulick48/lxp-bridge-go/internal/models"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
@@ -52,6 +53,10 @@ func run() int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	if config.Mirror.Enabled {
+		return runMirror(ctx, config.Mirror)
+	}
 
 	coord, err := coordinator.New(config)
 	if err != nil {
@@ -118,4 +123,49 @@ func LoadClientConfig(filename string) (models.Config, error) {
 		return config, fmt.Errorf("invalid config file %s: %w", filename, err)
 	}
 	return config, nil
+}
+
+// runMirror runs a read-only dongle mirror (config mirror.enabled) instead of the bridge, with /health and /metrics.
+func runMirror(ctx context.Context, cfg models.MirrorConfig) int {
+	m, err := mirror.New(cfg)
+	if err != nil {
+		logrus.Errorf("Unable to start the mirror: %s", err)
+		return 1
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		code, msg := m.Health()
+		w.WriteHeader(code)
+		if msg != "" {
+			_, _ = fmt.Fprintln(w, msg)
+		}
+	})
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		st := m.Stats()
+		for _, k := range []string{"received", "served", "stale", "writes_dropped", "clients"} {
+			_, _ = fmt.Fprintf(w, "lxp_mirror_%s %d\n", k, st[k])
+		}
+		fresh := 0
+		if m.Fresh() {
+			fresh = 1
+		}
+		_, _ = fmt.Fprintf(w, "lxp_mirror_fresh %d\n", fresh)
+	})
+	server := &http.Server{Addr: *healthAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logrus.Errorf("Health server failed: %s", err)
+		}
+	}()
+	err = m.Run(ctx)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = server.Shutdown(shutdownCtx)
+	if err != nil {
+		logrus.Errorf("Mirror stopped: %s", err)
+		return 1
+	}
+	logrus.Info("Shutdown complete")
+	return 0
 }

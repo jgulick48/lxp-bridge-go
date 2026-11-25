@@ -299,6 +299,11 @@ func (c *client) handleFrame(frame []byte) {
 			c.obs.Frame(frameCRCError)
 		} else {
 			c.obs.Frame(frameOK)
+			if rc, ok := c.callBack.(RawFrameCallback); ok {
+				if fn, reg, ok := ReadKey(frame); ok {
+					rc.ReportRawFrame(FrameDataLogger(frame), fn, reg, frame)
+				}
+			}
 		}
 	}
 }
@@ -329,4 +334,32 @@ func readFrame(r *bufio.Reader) (frame []byte, skipped int, err error) {
 		}
 		skipped++
 	}
+}
+
+// ReadFrame reads one complete frame from r (see readFrame), for code outside this package.
+func ReadFrame(r *bufio.Reader) ([]byte, error) {
+	f, _, err := readFrame(r)
+	return f, err
+}
+
+// ReadKey returns the function (3 holding or 4 input) and start register of a translated-data frame: a read
+// request or its reply. ok is false for anything else.
+func ReadKey(frame []byte) (function byte, register uint16, ok bool) {
+	if len(frame) < translatedHeaderLen+16 || frame[7] != 0xc2 {
+		return 0, 0, false
+	}
+	data := frame[translatedHeaderLen:]
+	function = data[3]
+	if function != 3 && function != 4 {
+		return 0, 0, false
+	}
+	return function, binary.LittleEndian.Uint16(data[14:16]), true
+}
+
+// FrameDataLogger is the datalogger serial in a frame's header ("" when too short).
+func FrameDataLogger(frame []byte) string {
+	if len(frame) < translatedHeaderLen {
+		return ""
+	}
+	return string(frame[8:translatedHeaderLen])
 }
