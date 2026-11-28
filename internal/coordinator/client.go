@@ -32,7 +32,14 @@ const (
 	// fieldWriteTimeout is how long a bit field change waits for the read
 	// of its register before it is dropped.
 	fieldWriteTimeout = 30 * time.Second
+	// fieldWriteMaxTries is how many times the register is read for one
+	// field write (the first read plus retries).
+	fieldWriteMaxTries = 3
 )
+
+// fieldWriteRetryDelays is how long to wait after the first and second read
+// before sending the next one (about 3s and 10s after the write is accepted).
+var fieldWriteRetryDelays = []time.Duration{3 * time.Second, 7 * time.Second}
 
 // Client ties the inverter connections, MQTT and metrics together.
 type Client interface {
@@ -92,6 +99,8 @@ type fieldWrite struct {
 	mask     uint16
 	value    uint16
 	deadline time.Time
+	sentAt   time.Time // when the register was last read for this change
+	attempts int       // reads sent so far
 }
 
 type client struct {
@@ -674,10 +683,49 @@ func (c *client) queueFieldWrite(inv *inverter, addr uint16, register registers.
 	}
 	fw.mask |= register.BitMask
 	fw.value = register.SetField(fw.value, value)
-	fw.deadline = c.now().Add(fieldWriteTimeout)
+	now := c.now()
+	fw.deadline = now.Add(fieldWriteTimeout)
+	fw.sentAt = now
+	fw.attempts = 1
 	inv.mu.Unlock()
 	logrus.Infof("Accepted field write: datalog=%s register=%d (%s) value=%d, reading register first", inv.config.DataLog, addr, register.ShortName, value)
 	inv.client.SendCommand(modbus.BuildPacket(inv.config.DataLog, inv.config.Serial, 0, 0x3, addr, modbus.GetBytesForUInt16(1)...))
+}
+
+// checkFieldWrites re-reads registers whose field write has had no reply and
+// drops writes that ran out of time. It is called once a second.
+func (c *client) checkFieldWrites(inv *inverter, now time.Time) {
+	if c.config.ReadOnly {
+		return
+	}
+	var resend []uint16
+	var dropped []string
+	inv.mu.Lock()
+	for addr, fw := range inv.pending {
+		if now.After(fw.deadline) {
+			delete(inv.pending, addr)
+			dropped = append(dropped, fmt.Sprintf("Dropped field write to register %d on %s: no read reply after %d tries in %s", addr, inv.config.DataLog, fw.attempts, fieldWriteTimeout))
+			continue
+		}
+		if fw.attempts >= fieldWriteMaxTries || fw.attempts > len(fieldWriteRetryDelays) || !inv.client.Connected() {
+			continue
+		}
+		if now.Sub(fw.sentAt) >= fieldWriteRetryDelays[fw.attempts-1] {
+			fw.attempts++
+			fw.sentAt = now
+			resend = append(resend, addr)
+			logrus.Infof("Retrying read of register %d on %s for field write (try %d)", addr, inv.config.DataLog, fw.attempts)
+		}
+	}
+	inv.mu.Unlock()
+	tags := []string{metrics.FormatTag("deploymentID", inv.config.DataLog)}
+	for _, msg := range dropped {
+		logrus.Warn(msg)
+		metrics.Count(c.metrics, c.metricName("bridge_field_writes_dropped"), tags, 1)
+	}
+	for _, addr := range resend {
+		inv.client.SendCommand(modbus.BuildPacket(inv.config.DataLog, inv.config.Serial, 0, 0x3, addr, modbus.GetBytesForUInt16(1)...))
+	}
 }
 
 // deviceTypeReg is the holding register with the device type code.
@@ -775,7 +823,8 @@ func (c *client) ReportHolding(dataLogger string, start uint16, values []uint16)
 		}
 		delete(inv.pending, addr)
 		if now.After(fw.deadline) {
-			logrus.Warnf("Dropped field write to register %d on %s: no read reply in %s", addr, dataLogger, fieldWriteTimeout)
+			logrus.Warnf("Dropped field write to register %d on %s: no read reply after %d tries in %s", addr, dataLogger, fw.attempts, fieldWriteTimeout)
+			metrics.Count(c.metrics, c.metricName("bridge_field_writes_dropped"), []string{metrics.FormatTag("deploymentID", dataLogger)}, 1)
 			continue
 		}
 		next := v&^fw.mask | fw.value&fw.mask
@@ -967,6 +1016,7 @@ func (c *client) setupPolling(ctx context.Context, inv *inverter) {
 		case <-lwt.C:
 			_ = c.mqtt.SendMessage(fmt.Sprintf("%s/LWT", c.config.MQTTConfig.NameSpace), "Online", true)
 		case <-connCheck.C:
+			c.checkFieldWrites(inv, c.now())
 			// Read the holding registers each time the inverter (re)connects.
 			connected := inv.client.Connected()
 			sentHolds := false

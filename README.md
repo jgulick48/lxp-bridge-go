@@ -184,6 +184,7 @@ Additionally, with the same tag:
 * `<namespace>_bridge_frames` count, tagged `result:ok|crc_error|parse_error`
 * `<namespace>_bridge_reconnects` count
 * `<namespace>_bridge_commands_dropped` count (command queue of 32 was full)
+* `<namespace>_bridge_field_writes_dropped` count (a bit-field write got no read reply and was dropped)
 * `<namespace>_bridge_clock_drift_s` gauge, inverter clock minus host clock in seconds (each holding read of
   registers 12-14; only when `clock_sync.timezone` is set)
 
@@ -215,6 +216,8 @@ Settings are changed by publishing to `<namespace>/cmd/<datalog>/set/hold/<regis
 (for example `48.5` for a voltage or `8.5` for 8.5 kW). Settings that are single bits of a shared register, such as
 AC charge enable, use `<namespace>/cmd/<datalog>/set/hold/<register>/<field>` with `1`/`0` (`ON`/`OFF` also work); the
 bridge reads the register first and changes only those bits, so other settings in it are never overwritten.
+If the inverter does not answer the read, it is repeated after 3 and 10 seconds (while connected); a change with no
+answer after 30 seconds is dropped, logged at warn and counted in `<namespace>_bridge_field_writes_dropped`.
 
 Only the settings marked writable in [holding registers](docs/holding-registers.md) are accepted, and only inside their
 range. Everything else is rejected and logged at warn; accepted writes are logged at info. Home Assistant uses these
